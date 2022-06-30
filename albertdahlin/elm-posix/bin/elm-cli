@@ -1,0 +1,282 @@
+#!/usr/bin/env node
+
+const fs = require('fs');
+const childProcess = require('child_process');
+const readline = require('readline');
+const os = require('os');
+const tmpDir = os.tmpdir();
+const crypto = require('crypto');
+const XMLHttpRequest = require('../js/xmlhttprequest.js');
+const stdIo = require('../js/io.js');
+
+const args = parseArgs(process.argv.slice(2));
+
+switch (args.cmd) {
+    case 'make':
+        var jsFile = compileProgram(args);
+        var sourceCode = wrapCliProgram(jsFile);
+        fs.writeFileSync(args.dst, sourceCode, { mode: 0o755 });
+
+        fs.unlinkSync(jsFile);
+        process.exit(0);
+        break;
+
+    case 'run':
+        var jsFile = compileProgram(args);
+        var elmApp = requireElmApp(args, jsFile);
+        fs.unlinkSync(jsFile);
+        start(elmApp, args.flags);
+        break;
+
+    default:
+        printBugReport(`Unknown cmd: ${args.cmd}`);
+        process.exit(255);
+}
+
+
+function start(elmApp, flags) {
+    const rl = readline.createInterface({
+        input: process.stdin,
+        output: process.stdout
+    });
+    const app = elmApp.init({ flags: flags });
+
+    app.ports.send.subscribe(function(msg) {
+        const fn = stdIo[msg.fn];
+
+        if (!fn) {
+            printBugReport(`IO Function "${msg.fn}" not implemented.`);
+            process.exit(255);
+        }
+        var result = fn.apply(null, msg.args);
+
+        if (result instanceof Promise) {
+            result
+                .then(app.ports.recv.send)
+                .catch(app.ports.recv.send);
+        } else {
+            app.ports.recv.send(result);
+        }
+    });
+}
+
+function parseArgs(argsList) {
+    var action = argsList.shift();
+    var options = {
+        debug: false,
+    };
+
+    while (arg = argsList.shift()) {
+        if (arg == '--debug') {
+            options.debug = true;
+            continue;
+        }
+        argsList.unshift(arg);
+        break;
+    }
+
+    if (!action) {
+        exitUserError();
+    }
+
+    switch (action) {
+        case 'make':
+            if (argsList.length !== 2) {
+                exitUserError('Wrong number of arguments.');
+            }
+            return {
+                cmd: 'make',
+                opt: options,
+                src: argsList[0],
+                dst: argsList[1],
+            };
+            break;
+
+        case 'run':
+            if (argsList.length < 1) {
+                exitUserError('Wrong number of arguments.');
+            }
+            return {
+                cmd: 'run',
+                opt: options,
+                src: argsList[0],
+                flags: {
+                    argv: argsList,
+                    pid: process.pid,
+                    env: process.env
+                }
+            }
+            break;
+
+        default:
+            exitUserError(`Unknown command: ${action}`);
+    }
+}
+
+function exitUserError(msg) {
+    if (msg) {
+        console.error(msg);
+    } else {
+        printUsageHelp();
+    }
+    process.exit(255);
+}
+
+function printUsageHelp() {
+    console.log(`
+Usage: elm-cli ACTION [OPTION] FILE [ARGS]
+
+ACTION:
+  make    Compile the program to a stand alone js file.
+          Example: elm-cli make src/MyProgram.elm dest/my-program.js
+
+  run     Run the program.
+          Example: elm-cli run src/MyProgram.elm arg1 arg2
+
+OPTION:
+  --debug   Do not optimize when compiling. This allows the Debug module in Elm
+            Example: elm-cli run --debug src/MyProgram.elm arg1 arg2
+`);
+}
+
+function printBugReport(msg) {
+    console.error(`
+You found a bug!
+Please report at https://github.com/albertdahlin/elm-posix/issues
+
+Copy the information below into the issue:
+
+${msg}
+`);
+}
+
+function compileProgram(args) {
+    var elmJson = JSON.parse(fs.readFileSync(process.cwd() + '/elm.json').toString());
+    var sourceDirectories = elmJson['source-directories'];
+    var moduleName =
+        args.src.split('/')
+            .filter(part => part.match(/^[A-Z]/))
+            .join('.')
+            .replace(/\.elm$/, '');
+
+    var sourceCode = wrapElmProgram(moduleName);
+    var elmMain = tmpDir + '/elm-cli-' + process.pid;
+
+    fs.writeFileSync(`${elmMain}.elm`, sourceCode);
+
+    try {
+        if (args.opt.debug) {
+            childProcess.execSync(`elm make ${elmMain}.elm --output ${elmMain}.js`);
+        } else {
+            childProcess.execSync(`elm make --optimize ${elmMain}.elm --output ${elmMain}.js`);
+        }
+    } catch(e) {
+        fs.unlinkSync(`${elmMain}.elm`);
+        process.exit(255);
+    }
+
+    fs.unlinkSync(`${elmMain}.elm`);
+    xmlHttpPolyfill = fs.readFileSync('../js/xmlhttprequest.js');
+    fs.appendFileSync(`${elmMain}.js`, xmlHttpPolyfill);
+
+    return `${elmMain}.js`;
+
+}
+
+function requireElmApp(args, jsFile) {
+    var elmProgram = require(jsFile);
+    var elmApp = elmProgram;
+
+    while (true) {
+        if (elmApp.init) {
+            break;
+        }
+        elmApp = elmApp[Object.keys(elmApp)[0]];
+    }
+
+    return elmApp;
+}
+
+function wrapElmProgram(moduleName) {
+    return `
+port module Wrapper exposing (..)
+
+
+import Posix.IO as IO
+import ${moduleName} as Cli
+
+
+port send : IO.PortOut msg
+port recv : IO.PortIn msg
+
+main =
+    IO.makeProgram Cli.program recv send
+`;
+}
+
+function wrapCliProgram(jsFile) {
+    const elm = fs.readFileSync(jsFile).toString();
+    const io = fs.readFileSync('../js/io.js').toString();
+
+    return `#!/usr/bin/env node
+
+const fs = require('fs');
+const childProcess = require('child_process');
+const readline = require('readline');
+const os = require('os');
+const tmpDir = os.tmpdir();
+const crypto = require('crypto');
+
+
+const stdIo = function() {
+    ${io}
+
+    return module.exports;
+}
+
+${elm}
+
+
+var elmApp = this;
+
+while (true) {
+    if (elmApp.init) {
+        break;
+    }
+    elmApp = elmApp[Object.keys(elmApp)[0]];
+}
+
+const rl = readline.createInterface({
+  input: process.stdin,
+  output: process.stdout
+});
+
+
+const flags = {
+    argv: process.argv.slice(1),
+    pid: process.pid,
+    env: process.env
+}
+const app = elmApp.init({ flags: flags });
+
+app.ports.send.subscribe(function(msg) {
+    const fn = stdIo[msg.fn];
+
+    if (!fn) {
+        console.error(\`Function "\${msg.fn}" does not exists in javascript.\`);
+        process.exit(255);
+    }
+
+    var result = fn.apply(null, msg.args);
+
+    if (result instanceof Promise) {
+        result
+            .then(app.ports.recv.send)
+            .catch(app.ports.recv.send);
+    } else {
+        app.ports.recv.send(result);
+    }
+});
+
+`;
+}

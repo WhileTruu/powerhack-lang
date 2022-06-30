@@ -1,0 +1,6 @@
+elm-stuff
+node_modules
+build
+.direnv
+.envrc
+.idea
