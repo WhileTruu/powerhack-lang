@@ -8,6 +8,7 @@ const tmpDir = os.tmpdir();
 const crypto = require('crypto');
 const XMLHttpRequest = require('../js/xmlhttprequest.js');
 const stdIo = require('../js/io.js');
+const path = require("path");
 
 const args = parseArgs(process.argv.slice(2));
 
@@ -176,7 +177,7 @@ function compileProgram(args) {
     }
 
     fs.unlinkSync(`${elmMain}.elm`);
-    xmlHttpPolyfill = fs.readFileSync('../js/xmlhttprequest.js');
+    xmlHttpPolyfill = fs.readFileSync(path.resolve(__dirname, '../js/xmlhttprequest.js'));
     fs.appendFileSync(`${elmMain}.js`, xmlHttpPolyfill);
 
     return `${elmMain}.js`;
@@ -216,7 +217,7 @@ main =
 
 function wrapCliProgram(jsFile) {
     const elm = fs.readFileSync(jsFile).toString();
-    const io = fs.readFileSync('../js/io.js').toString();
+    const io = fs.readFileSync(path.resolve(__dirname, '../js/io.js')).toString();
 
     return `#!/usr/bin/env node
 
