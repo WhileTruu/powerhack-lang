@@ -3,12 +3,12 @@ module Parse.Expression exposing (expression)
 import AST.Source as Source
 import Data.VarName exposing (VarName)
 import Parse.Error as E
-import Parse.Parser as P exposing (Parser)
+import Parse.Parser as P
 import Parse.Variable
 import Parser.Advanced as P exposing ((|.), (|=))
 
 
-term : Parser Source.LocatedExpr
+term : P.Parser E.Context E.Problem Source.LocatedExpr
 term =
     P.oneOf
         [ Parse.Variable.variable
@@ -33,7 +33,7 @@ term =
         ]
 
 
-expression : Parser Source.LocatedExpr
+expression : P.Parser E.Context E.Problem Source.LocatedExpr
 expression =
     P.oneOf
         [ if_
@@ -47,12 +47,15 @@ expression =
         ]
 
 
-chompExprEnd : Source.LocatedExpr -> Parser Source.LocatedExpr
+chompExprEnd : Source.LocatedExpr -> P.Parser E.Context E.Problem Source.LocatedExpr
 chompExprEnd arg =
     P.loop [] (chompExprEndHelp arg)
 
 
-chompExprEndHelp : Source.LocatedExpr -> List Source.LocatedExpr -> Parser (P.Step (List Source.LocatedExpr) Source.LocatedExpr)
+chompExprEndHelp :
+    Source.LocatedExpr
+    -> List Source.LocatedExpr
+    -> P.Parser E.Context E.Problem (P.Step (List Source.LocatedExpr) Source.LocatedExpr)
 chompExprEndHelp arg vs =
     P.succeed identity
         |. P.ignoreables
@@ -76,12 +79,14 @@ chompExprEndHelp arg vs =
             ]
 
 
-defsOrVarAndChompExprEnd : Parser Source.LocatedExpr
+defsOrVarAndChompExprEnd : P.Parser E.Context E.Problem Source.LocatedExpr
 defsOrVarAndChompExprEnd =
     P.loop [] defsOrVarAndChompExprEndHelp
 
 
-defsOrVarAndChompExprEndHelp : List Source.Def -> Parser (P.Step (List Source.Def) Source.LocatedExpr)
+defsOrVarAndChompExprEndHelp :
+    List Source.Def
+    -> P.Parser E.Context E.Problem (P.Step (List Source.Def) Source.LocatedExpr)
 defsOrVarAndChompExprEndHelp args =
     P.oneOf
         [ P.succeed identity
@@ -120,14 +125,14 @@ defsOrVarAndChompExprEndHelp args =
         ]
 
 
-varAndChompExprEnd : VarName -> Parser Source.LocatedExpr
+varAndChompExprEnd : VarName -> P.Parser E.Context E.Problem Source.LocatedExpr
 varAndChompExprEnd name =
     P.succeed (Source.Var { name = name })
         |> P.located
         |> P.andThen (\expr -> chompExprEnd expr)
 
 
-lambda : Parser Source.LocatedExpr
+lambda : P.Parser E.Context E.Problem Source.LocatedExpr
 lambda =
     P.succeed
         (\arguments body ->
@@ -168,7 +173,7 @@ lambda =
         |> P.located
 
 
-if_ : Parser Source.LocatedExpr
+if_ : P.Parser E.Context E.Problem Source.LocatedExpr
 if_ =
     P.succeed
         (\test then_ else_ ->

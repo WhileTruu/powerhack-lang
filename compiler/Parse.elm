@@ -1,9 +1,11 @@
 module Parse exposing (decls)
 
 import Parse.Declaration as Declaration exposing (Declaration)
-import Parse.Parser as Parser exposing (Parser)
+import Parse.Error as E
+import Parse.Parser as P
+import Parser.Advanced as P
 
 
-decls : Parser (List Declaration)
+decls : P.Parser E.Context E.Problem (List Declaration)
 decls =
-    Parser.oneOrMoreWith Parser.ignoreables Declaration.declaration
+    P.oneOrMoreWith P.ignoreables Declaration.declaration

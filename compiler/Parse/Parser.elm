@@ -1,6 +1,5 @@
 module Parse.Parser exposing
-    ( Parser
-    , backslash
+    ( backslash
     , checkIndent
     , ignoreables
     , ignoreablesAndCheckIndent
@@ -14,17 +13,13 @@ module Parse.Parser exposing
     )
 
 import Data.Located as Located exposing (Located)
-import Parse.Error
-import Parser.Advanced as PA exposing ((|.), (|=))
+import Parse.Error as E
+import Parser.Advanced as P exposing ((|.), (|=))
 
 
-type alias Parser a =
-    PA.Parser Parse.Error.Context Parse.Error.Problem a
-
-
-located : Parser p -> Parser (Located p)
+located : P.Parser context problem p -> P.Parser context problem (Located p)
 located p =
-    PA.succeed
+    P.succeed
         (\( startRow, startCol ) value ( endRow, endCol ) ->
             Located.located
                 { start = { row = startRow, col = startCol }
@@ -32,126 +27,140 @@ located p =
                 }
                 value
         )
-        |= PA.getPosition
+        |= P.getPosition
         |= p
-        |= PA.getPosition
+        |= P.getPosition
 
 
-ignoreables : Parser ()
+ignoreables : P.Parser context E.Problem ()
 ignoreables =
-    PA.loop 0 <|
+    P.loop 0 <|
         ifProgress <|
-            PA.oneOf
-                [ PA.symbol (PA.Token "\t" Parse.Error.InvalidTab)
-                    |> PA.andThen (\_ -> PA.problem Parse.Error.InvalidTab)
-                , PA.spaces
+            P.oneOf
+                [ P.symbol (P.Token "\t" E.InvalidTab)
+                    |> P.andThen (\_ -> P.problem E.InvalidTab)
+                , P.spaces
                 ]
 
 
-ifProgress : Parser a -> Int -> Parser (PA.Step Int ())
+ifProgress : P.Parser context problem a -> Int -> P.Parser context problem (P.Step Int ())
 ifProgress parser offset =
-    PA.succeed identity
+    P.succeed identity
         |. parser
-        |= PA.getOffset
-        |> PA.map
+        |= P.getOffset
+        |> P.map
             (\newOffset ->
                 if offset == newOffset then
-                    PA.Done ()
+                    P.Done ()
 
                 else
-                    PA.Loop newOffset
+                    P.Loop newOffset
             )
 
 
-backslash : Parser ()
+backslash : P.Parser context E.Problem ()
 backslash =
-    PA.token (PA.Token "\\" Parse.Error.ExpectingBackslash)
+    P.token (P.Token "\\" E.ExpectingBackslash)
 
 
-spacesOnly : Parser ()
+spacesOnly : P.Parser context problem ()
 spacesOnly =
-    PA.chompWhile ((==) ' ')
+    P.chompWhile ((==) ' ')
 
 
-oneOrMoreWith : Parser () -> Parser a -> Parser (List a)
+oneOrMoreWith :
+    P.Parser context problem ()
+    -> P.Parser context problem a
+    -> P.Parser context problem (List a)
 oneOrMoreWith spaces p =
-    PA.loop [] (oneOrMoreHelp spaces p)
+    P.loop [] (oneOrMoreHelp spaces p)
 
 
-oneOrMoreHelp : Parser () -> Parser a -> List a -> Parser (PA.Step (List a) (List a))
+oneOrMoreHelp :
+    P.Parser context problem ()
+    -> P.Parser context problem a
+    -> List a
+    -> P.Parser context problem (P.Step (List a) (List a))
 oneOrMoreHelp spaces p vs =
-    PA.oneOf
-        [ PA.succeed (\v -> PA.Loop (v :: vs))
+    P.oneOf
+        [ P.succeed (\v -> P.Loop (v :: vs))
             |= p
             |. spaces
-        , PA.succeed ()
-            |> PA.map (always (PA.Done (List.reverse vs)))
+        , P.succeed ()
+            |> P.map (always (P.Done (List.reverse vs)))
         ]
 
 
-ignoreablesAndCheckIndent : (Int -> Int -> Bool) -> Parse.Error.Problem -> Parser ()
+ignoreablesAndCheckIndent : (Int -> Int -> Bool) -> E.Problem -> P.Parser context E.Problem ()
 ignoreablesAndCheckIndent check error =
-    PA.succeed ()
+    P.succeed ()
         |. ignoreables
         |. checkIndent check error
 
 
-zeroOrMoreWith : Parser () -> Parser a -> Parser (List a)
+zeroOrMoreWith :
+    P.Parser context problem ()
+    -> P.Parser context problem a
+    -> P.Parser context problem (List a)
 zeroOrMoreWith spaces p =
-    PA.loop [] (zeroOrMoreHelp spaces p)
+    P.loop [] (zeroOrMoreHelp spaces p)
 
 
-zeroOrMoreHelp : Parser () -> Parser a -> List a -> Parser (PA.Step (List a) (List a))
+zeroOrMoreHelp :
+    P.Parser context problem ()
+    -> P.Parser context problem a
+    -> List a
+    -> P.Parser context problem (P.Step (List a) (List a))
 zeroOrMoreHelp spaces p vs =
-    PA.oneOf
+    P.oneOf
         [ p
-            |> PA.andThen
+            |> P.andThen
                 (\v ->
                     let
                         result =
-                            PA.Loop (v :: vs)
+                            P.Loop (v :: vs)
                     in
-                    PA.oneOf
-                        [ PA.succeed result
+                    P.oneOf
+                        [ P.succeed result
                             |. spaces
-                        , PA.succeed result
+                        , P.succeed result
                         ]
                 )
-        , PA.succeed ()
-            |> PA.map (always (PA.Done (List.reverse vs)))
+        , P.succeed ()
+            |> P.map (always (P.Done (List.reverse vs)))
         ]
 
 
-checkIndent : (Int -> Int -> Bool) -> Parse.Error.Problem -> Parser ()
+checkIndent : (Int -> Int -> Bool) -> problem -> P.Parser context problem ()
 checkIndent check error =
-    PA.succeed
+    P.succeed
         (\indent col ->
             if check indent col then
-                PA.succeed ()
+                P.succeed ()
 
             else
-                PA.problem error
+                P.problem error
         )
-        |= PA.getIndent
-        |= PA.getCol
-        |> PA.andThen identity
+        |= P.getIndent
+        |= P.getCol
+        |> P.andThen identity
 
 
-notAtBeginningOfLine : Parser a -> Parser a
+notAtBeginningOfLine : P.Parser context E.Problem a -> P.Parser context E.Problem a
 notAtBeginningOfLine parser =
-    PA.succeed identity
-        |. checkIndent (\_ column -> column > 1) Parse.Error.ExpectingIndentation
+    P.succeed identity
+        |. checkIndent (\_ column -> column > 1) E.ExpectingIndentation
         |= parser
 
 
-onlyAtBeginningOfLine : Parser a -> Parser a
+onlyAtBeginningOfLine : P.Parser context E.Problem a -> P.Parser context E.Problem a
 onlyAtBeginningOfLine parser =
-    PA.succeed identity
-        |. checkIndent (\_ column -> column == 1) Parse.Error.ExpectingNoIndentation
+    P.succeed identity
+        |. checkIndent (\_ column -> column == 1) E.ExpectingNoIndentation
         |= parser
 
 
-rememberIndentation : Parser a -> Parser a
+rememberIndentation : P.Parser context problem a -> P.Parser context problem a
 rememberIndentation parser =
-    PA.getCol
-        |> PA.andThen (\col -> PA.withIndent col parser)
+    P.getCol
+        |> P.andThen (\col -> P.withIndent col parser)

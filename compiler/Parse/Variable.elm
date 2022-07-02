@@ -1,18 +1,17 @@
 module Parse.Variable exposing (..)
 
 import Data.VarName
-import Parse.Error
-import Parse.Parser exposing (Parser)
-import Parser.Advanced as PA
+import Parse.Error as E
+import Parser.Advanced as P
 import Set
 
 
-variable : Parser Data.VarName.VarName
+variable : P.Parser context E.Problem Data.VarName.VarName
 variable =
-    PA.variable
+    P.variable
         { start = Char.isLower
         , inner = \c -> Char.isAlphaNum c || c == '_'
         , reserved = Set.fromList [ "if", "then", "else" ]
-        , expecting = Parse.Error.ExpectingVarName
+        , expecting = E.ExpectingVarName
         }
-        |> PA.map Data.VarName.init
+        |> P.map Data.VarName.init
