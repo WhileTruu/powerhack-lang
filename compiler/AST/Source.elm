@@ -3,12 +3,17 @@ module AST.Source exposing
     , Expr(..)
     , LocatedExpr
     , LocatedPattern
+    , Module
     , Pattern(..)
     , Value(..)
     )
 
 import Data.Located as Located exposing (Located)
 import Data.VarName exposing (VarName)
+
+
+
+-- EXPRESSIONS
 
 
 type alias LocatedExpr =
@@ -24,12 +29,12 @@ type Expr
     | If { test : LocatedExpr, then_ : LocatedExpr, else_ : LocatedExpr }
 
 
+
+-- DEFINITIONS
+
+
 type Def
     = Define VarName LocatedExpr
-
-
-type Value
-    = Value (Located VarName) LocatedExpr
 
 
 type alias LocatedPattern =
@@ -57,3 +62,16 @@ type Type
     | TVar VarName
     | TType Located.Region VarName (List LocatedType)
     | TTypeQual Located.Region VarName VarName (List LocatedType)
+
+
+
+-- MODULE
+
+
+type alias Module =
+    { values : List Value
+    }
+
+
+type Value
+    = Value (Located VarName) LocatedExpr

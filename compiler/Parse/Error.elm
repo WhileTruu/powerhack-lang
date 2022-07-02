@@ -1,11 +1,6 @@
-module Parse.Error exposing (Context(..), Error(..), Problem(..), contextToString, problemToString)
+module Parse.Error exposing (Context(..), Problem(..), contextToString, problemToString)
 
-import Data.FileContents exposing (FileContents)
-import Parser.Advanced as PA
-
-
-type Error
-    = Problem ( List (PA.DeadEnd Context Problem), FileContents )
+import Data.FilePath as FilePath exposing (FilePath)
 
 
 type Context
@@ -14,6 +9,7 @@ type Context
     | InDef
     | InDefs
     | InIf
+    | InFile FilePath
 
 
 contextToString : Context -> String
@@ -33,6 +29,9 @@ contextToString context =
 
         InIf ->
             "IF"
+
+        InFile filePath ->
+            "IN FILE: " ++ FilePath.toString filePath
 
 
 type Problem

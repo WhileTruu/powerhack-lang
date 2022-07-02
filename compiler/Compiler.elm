@@ -1,12 +1,12 @@
 module Compiler exposing (..)
 
-import Console
+import Data.FileContents as FileContents exposing (FileContents)
+import Data.FilePath as FilePath exposing (FilePath)
+import Error exposing (Error)
 import Expect
 import Fuzz
 import Generate
 import Parse
-import Parse.Error as E
-import Parser.Advanced as P
 import Random exposing (Generator)
 import Random.Extra as Random
 import Random.String
@@ -14,18 +14,12 @@ import Shrink
 import Test exposing (Test)
 
 
-compile : String -> Result (List (P.DeadEnd E.Context E.Problem)) String
-compile =
-    compileDecls
+compile : FilePath -> FileContents -> Result Error String
+compile filePath fileContents =
+    Parse.parse filePath fileContents
+        |> Result.map Generate.generate
         >> Result.map ((++) (builtIns ++ "\n\n"))
         >> Result.map (\a -> a ++ "\n\nconsole.log((function () { return main() })())")
-
-
-compileDecls : String -> Result (List (P.DeadEnd E.Context E.Problem)) String
-compileDecls =
-    P.run Parse.decls
-        >> Result.map (List.map Generate.generate)
-        >> Result.map (String.join "\n\n")
 
 
 builtIns : String
@@ -41,6 +35,12 @@ builtIns =
 
 parseAndCompileSuite : Test
 parseAndCompileSuite =
+    let
+        parseAndGenerate : String -> Result Error String
+        parseAndGenerate input =
+            Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
+                |> Result.map Generate.generate
+    in
     Test.describe "Parse and compile"
         [ Test.fuzz2 varNameFuzzer (Fuzz.map abs Fuzz.int) "variable" <|
             \varName int ->
@@ -53,7 +53,7 @@ parseAndCompileSuite =
                     output =
                         "var " ++ varName ++ " = " ++ String.fromInt int
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.fuzz varNameFuzzer "function" <|
             \varName ->
                 let
@@ -69,7 +69,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.fuzz varNameFuzzer "nested functions" <|
             \varName ->
                 let
@@ -87,7 +87,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.fuzz varNameFuzzer "nested function formatted on multiple lines" <|
             \varName ->
                 let
@@ -110,7 +110,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.test "definition in function" <|
             \_ ->
                 let
@@ -135,7 +135,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.test "multiple definitions in function" <|
             \_ ->
                 let
@@ -162,7 +162,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.test "multiple definitions in function that returns function" <|
             \_ ->
                 let
@@ -191,7 +191,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         , Test.test "if then else" <|
             \_ ->
                 let
@@ -211,7 +211,7 @@ parseAndCompileSuite =
                         ]
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output) (compileDecls input)
+                Expect.equal (Ok output) (parseAndGenerate input)
         ]
 
 
@@ -248,194 +248,3 @@ varNameFuzzer =
     Fuzz.map2 String.cons
         (Fuzz.custom lowerCaseAlphaCharGenerator (Shrink.atLeastChar 'a'))
         (Fuzz.custom asciiGenerator Shrink.string)
-
-
-formatParseError : { fileName : String } -> String -> List (P.DeadEnd E.Context E.Problem) -> String
-formatParseError { fileName } source deadEnds =
-    deadEndsToReports source deadEnds
-        |> List.map (renderReport { fileName = fileName })
-        |> String.join "\n"
-
-
-deadEndsToReports : String -> List (P.DeadEnd E.Context E.Problem) -> List Report
-deadEndsToReports source deadEnds =
-    List.map (deadEndToReport source) deadEnds
-
-
-deadEndToReport : String -> P.DeadEnd E.Context E.Problem -> Report
-deadEndToReport source deadEnd =
-    { title =
-        case deadEnd.contextStack of
-            [] ->
-                "PROBLEM WITH PARSING?"
-
-            first :: _ ->
-                "PROBLEM " ++ E.contextToString first.context
-    , message =
-        [ case deadEnd.contextStack of
-            [] ->
-                "I got stuck here:"
-
-            first :: _ ->
-                case first.context of
-                    E.InDeclaration ->
-                        "I got stuck parsing this declaration here:"
-
-                    E.InLambda ->
-                        "I got stuck parsing this lambda here:"
-
-                    E.InDef ->
-                        "I got stuck parsing this definition here:"
-
-                    E.InDefs ->
-                        "I got stuck parsing these definitions here:"
-
-                    E.InIf ->
-                        "I got stuck parsing this `if` expression here:"
-        , render source deadEnd
-        , case deadEnd.problem of
-            E.ExpectingVarName ->
-                "I was expecting to see a variable name."
-
-            E.ExpectingDef ->
-                "I was expecting to see a def."
-
-            E.InvalidTab ->
-                "FIXME: I don't like tabs."
-
-            E.InvalidNumber ->
-                "I was expecting to see a valid number."
-
-            E.ExpectingNumber ->
-                "I was expecting to see a number."
-
-            E.ExpectingOpenParen ->
-                "I was expecting to see an opening parenthesis next. Try putting a "
-                    ++ Console.green "("
-                    ++ " next and see if that helps?"
-
-            E.ExpectingCloseParen ->
-                "I was expecting to see a closing parenthesis next. Try putting a "
-                    ++ Console.green ")"
-                    ++ " next and see if that helps?"
-
-            E.ExpectingComma ->
-                "I was expecting to see a comma (" ++ Console.green "," ++ ") next."
-
-            E.ExpectingEquals ->
-                "I was expecting to see the equals sign (" ++ Console.green "=" ++ ") next."
-
-            E.ExpectingBackslash ->
-                "I was expecting to see a backslash next."
-
-            E.ExpectingRightArrow ->
-                "I was expecting to see the right arrow " ++ Console.green "->" ++ " next."
-
-            E.FuncIdentBody ->
-                "I was expecting the function body to be indented."
-
-            E.ExpectingIndentation ->
-                "I was expecting to see indentation next."
-
-            E.ExpectingNoIndentation ->
-                "I was expecting to see no indentation  next."
-
-            E.ExpectingIf ->
-                "I was expecting to see the " ++ Console.green "if" ++ " keyword next."
-
-            E.ExpectingThen ->
-                "I was expecting to see the " ++ Console.green "then" ++ " keyword next."
-
-            E.ExpectingElse ->
-                "I was expecting to see the " ++ Console.green "else" ++ " keyword next."
-        , deadEndToString deadEnd
-        ]
-            |> String.join "\n\n"
-    }
-
-
-render : String -> P.DeadEnd E.Context E.Problem -> String
-render source deadEnd =
-    let
-        startLine : Int
-        startLine =
-            Maybe.withDefault deadEnd.row (Maybe.map .row (List.head deadEnd.contextStack))
-
-        endLine : Int
-        endLine =
-            deadEnd.row
-
-        relevantLines : List String
-        relevantLines =
-            source
-                |> String.split "\n"
-                |> List.drop (startLine - 1)
-                |> List.take (1 + endLine - startLine)
-
-        largestLineNumberDecimalCount : Int
-        largestLineNumberDecimalCount =
-            String.length (String.fromInt endLine)
-    in
-    relevantLines
-        |> addLineNumbers startLine
-        |> (\a ->
-                a
-                    ++ [ String.repeat (largestLineNumberDecimalCount + 1 + deadEnd.col) " "
-                            ++ Console.red "^"
-                       ]
-           )
-        |> String.join "\n"
-
-
-addLineNumbers : Int -> List String -> List String
-addLineNumbers start lines =
-    let
-        end : Int
-        end =
-            start + List.length lines
-
-        largestLineNumberDecimalCount : Int
-        largestLineNumberDecimalCount =
-            String.length (String.fromInt end)
-    in
-    List.indexedMap
-        (\i line ->
-            String.padLeft (largestLineNumberDecimalCount + 1)
-                ' '
-                (String.fromInt (start + i) ++ "| ")
-                ++ line
-        )
-        lines
-
-
-type alias Report =
-    { title : String
-    , message : String
-    }
-
-
-renderReport : { fileName : String } -> Report -> String
-renderReport { fileName } report =
-    [ Console.cyan ("-- " ++ String.padRight (80 - 4 - String.length fileName - 1) '-' (report.title ++ " ") ++ " " ++ fileName)
-    , ""
-    , report.message
-    , ""
-    , ""
-    ]
-        |> String.join "\n"
-
-
-deadEndToString : P.DeadEnd E.Context E.Problem -> String
-deadEndToString { row, col, problem, contextStack } =
-    String.fromInt row
-        ++ ":"
-        ++ String.fromInt col
-        ++ " "
-        ++ E.problemToString problem
-        ++ " <--\n    "
-        ++ String.join " <-- " (List.map contextToString contextStack)
-
-
-contextToString : { row : Int, col : Int, context : E.Context } -> String
-contextToString { row, col, context } =
-    String.fromInt row ++ ":" ++ String.fromInt col ++ " " ++ E.contextToString context

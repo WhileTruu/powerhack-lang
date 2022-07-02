@@ -1,9 +1,10 @@
 module Main exposing (..)
 
 import Compiler
+import Data.FileContents as FileContents
+import Data.FilePath as FilePath
+import Error
 import List.Extra as List
-import Parse.Error
-import Parser.Advanced as PA exposing ((|.))
 import Posix.IO as IO exposing (IO, Process)
 import Posix.IO.File as IOFile
 import Posix.IO.File.Permission as IOFilePermission
@@ -16,18 +17,18 @@ program process =
         processArgs =
             processArgsFromStrings (List.drop 1 process.argv)
     in
-    Maybe.map2 (\file output -> appleSauce { file = file, output = output })
+    Maybe.map2 (\file output -> readCompileAndWrite { file = file, output = output })
         processArgs.file
         processArgs.output
         |> Maybe.withDefault (IO.printLn "Error: invalid args")
 
 
-appleSauce : { file : String, output : String } -> IO x ()
-appleSauce { file, output } =
+readCompileAndWrite : { file : String, output : String } -> IO x ()
+readCompileAndWrite { file, output } =
     IOFile.read file
         |> IO.andThen
             (\s ->
-                case Compiler.compile s of
+                case Compiler.compile (FilePath.init file) (FileContents.init s) of
                     Ok outputS ->
                         [ "Success! Compiled 1 module."
                         , ""
@@ -39,8 +40,8 @@ appleSauce { file, output } =
                             |> IO.print
                             |> IO.map (\_ -> outputS)
 
-                    Err deadEnds ->
-                        Compiler.formatParseError { fileName = file } s deadEnds
+                    Err error ->
+                        Error.format error
                             |> IO.fail
             )
         |> IO.andThen

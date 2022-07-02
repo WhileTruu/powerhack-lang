@@ -3,14 +3,17 @@ module Generate exposing (..)
 import AST.Source as Source
 import Data.Located as Located
 import Data.VarName as VarName
-import Parse.Declaration as Declaration exposing (Declaration)
 
 
-generate : Declaration -> String
-generate (Declaration.Value (Source.Value varName expr)) =
-    [ "var " ++ VarName.toString (Located.unwrap varName) ++ " = " ++ generateExpr 0 expr
-    ]
-        |> String.join "\n"
+generate : Source.Module -> String
+generate module_ =
+    List.map generateValue module_.values
+        |> String.join "\n\n"
+
+
+generateValue : Source.Value -> String
+generateValue (Source.Value varName expr) =
+    "var " ++ VarName.toString (Located.unwrap varName) ++ " = " ++ generateExpr 0 expr
 
 
 indent : Int -> String -> String
