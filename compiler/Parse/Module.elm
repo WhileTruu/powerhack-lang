@@ -10,7 +10,7 @@ import Parser.Advanced as P exposing ((|=))
 
 module_ : FilePath -> P.Parser E.Context E.Problem Source.Module
 module_ filePath =
-    P.succeed categorizeDecls
+    P.succeed (\( decl, decls ) -> categorizeDecls (decl :: decls))
         |= P.oneOrMoreWith P.ignoreables Declaration.declaration
         |> P.inContext (E.InFile filePath)
 

@@ -135,9 +135,9 @@ varAndChompExprEnd name =
 lambda : P.Parser E.Context E.Problem Source.LocatedExpr
 lambda =
     P.succeed
-        (\arguments body ->
+        (\( arg, args ) body ->
             Source.Lambda
-                { arguments = arguments
+                { arguments = arg :: args
                 , body =
                     {- Run the promoting transformation on every subexpression,
                        so that after parsing all the arguments aren't unqualified

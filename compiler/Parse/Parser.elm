@@ -71,9 +71,12 @@ spacesOnly =
 oneOrMoreWith :
     P.Parser context problem ()
     -> P.Parser context problem a
-    -> P.Parser context problem (List a)
+    -> P.Parser context problem ( a, List a )
 oneOrMoreWith spaces p =
-    P.loop [] (oneOrMoreHelp spaces p)
+    P.succeed Tuple.pair
+        |= p
+        |. spaces
+        |= P.loop [] (oneOrMoreHelp spaces p)
 
 
 oneOrMoreHelp :
