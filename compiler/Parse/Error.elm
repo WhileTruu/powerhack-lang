@@ -20,25 +20,24 @@ contextToString : Context -> String
 contextToString context =
     case context of
         InDeclaration ->
-            "InDeclaration"
+            "DECLARATION"
 
         InLambda ->
-            "InLambda"
+            "LAMBDA"
 
         InDef ->
-            "InDef"
+            "DEFINITION"
 
         InDefs ->
-            "InDefs"
+            "DEFINITIONS"
 
         InIf ->
-            "InIf"
+            "IF"
 
 
 type Problem
     = ExpectingVarName
     | ExpectingDef
-    | ExpectingEnd
     | InvalidTab
     | InvalidNumber
     | ExpectingNumber
@@ -60,55 +59,52 @@ problemToString : Problem -> String
 problemToString problem =
     case problem of
         ExpectingVarName ->
-            "ExpectingVarName"
+            "Expecting variable name"
 
         ExpectingDef ->
-            "ExpectingDef"
-
-        ExpectingEnd ->
-            "ExpectingEnd"
+            "Expecting definition"
 
         InvalidTab ->
-            "InvalidTab"
+            "Invalid tab"
 
         InvalidNumber ->
-            "InvalidNumber"
+            "Invalid number"
 
         ExpectingNumber ->
-            "ExpectingNumber"
+            "Expecting number"
 
         ExpectingOpenParen ->
-            "ExpectingOpenParen"
+            "Expecting open paren"
 
         ExpectingCloseParen ->
-            "ExpectingCloseParen"
+            "Expecting close paren"
 
         ExpectingComma ->
-            "ExpectingComma"
+            "Expecting comma"
 
         ExpectingEquals ->
-            "ExpectingEquals"
+            "Expecting equals"
 
         ExpectingBackslash ->
-            "ExpectingBackslash"
+            "Expecting backslash"
 
         ExpectingRightArrow ->
-            "ExpectingRightArrow"
+            "Expecting right arrow"
 
         FuncIdentBody ->
-            "FuncIdentBody"
+            "Expecting indentation in function body"
 
         ExpectingIndentation ->
-            "ExpectingIndentation"
+            "Expecting indentation"
 
         ExpectingNoIndentation ->
-            "ExpectingNoIndentation"
+            "Expecting no indentation"
 
         ExpectingIf ->
-            "ExpectingIf"
+            "Expecting if"
 
         ExpectingThen ->
-            "ExpectingThen"
+            "Expecting then"
 
         ExpectingElse ->
-            "ExpectingElse"
+            "Expecting else"

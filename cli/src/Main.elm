@@ -40,16 +40,7 @@ appleSauce { file, output } =
                             |> IO.map (\_ -> outputS)
 
                     Err deadEnds ->
-                        [ "Detected problems in 1 module."
-                        , header { title = "SOME ERROR", location = file }
-                        , ""
-                        , addLineNumbers s
-                        , ""
-                        , deadEndsToString deadEnds
-                        , ""
-                        , ""
-                        ]
-                            |> String.join "\n"
+                        Compiler.formatParseError { fileName = file } s deadEnds
                             |> IO.fail
             )
         |> IO.andThen
@@ -58,55 +49,6 @@ appleSauce { file, output } =
                 output
             )
         |> IO.recover IO.print
-
-
-header : { title : String, location : String } -> String
-header { title, location } =
-    "-- " ++ String.padRight (80 - 4 - String.length location - 1) '-' (title ++ " ") ++ " " ++ location
-
-
-deadEndsToString : List (PA.DeadEnd Parse.Error.Context Parse.Error.Problem) -> String
-deadEndsToString deadEnds =
-    String.join "\n" (List.map deadEndToString deadEnds)
-
-
-deadEndToString : PA.DeadEnd Parse.Error.Context Parse.Error.Problem -> String
-deadEndToString { row, col, problem, contextStack } =
-    String.fromInt row
-        ++ ":"
-        ++ String.fromInt col
-        ++ " "
-        ++ Parse.Error.problemToString problem
-        ++ " - "
-        ++ String.join " " (List.map contextToString contextStack)
-
-
-contextToString : { row : Int, col : Int, context : Parse.Error.Context } -> String
-contextToString { row, col, context } =
-    String.fromInt row ++ ":" ++ String.fromInt col ++ " " ++ Parse.Error.contextToString context
-
-
-addLineNumbers : String -> String
-addLineNumbers s =
-    let
-        lines =
-            String.split "\n" s
-
-        largestLineNumberDecimalCount : Int
-        largestLineNumberDecimalCount =
-            String.length (String.fromInt (List.length lines))
-    in
-    String.join
-        "\n"
-        (List.indexedMap
-            (\i line ->
-                String.padLeft (largestLineNumberDecimalCount + 2)
-                    ' '
-                    (String.fromInt (i + 1) ++ "| ")
-                    ++ line
-            )
-            lines
-        )
 
 
 
