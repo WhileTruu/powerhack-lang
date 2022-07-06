@@ -1,5 +1,6 @@
 module Compiler exposing (..)
 
+import Canonicalize
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
 import Error exposing (Error)
@@ -17,6 +18,7 @@ import Test exposing (Test)
 compile : FilePath -> FileContents -> Result Error String
 compile filePath fileContents =
     Parse.parse filePath fileContents
+        |> Result.andThen Canonicalize.canonicalize
         |> Result.map Generate.generate
         >> Result.map ((++) (builtIns ++ "\n\n"))
         >> Result.map (\a -> a ++ "\n\nconsole.log((function () { return main() })())")
@@ -26,9 +28,9 @@ builtIns : String
 builtIns =
     [ "#!/usr/bin/env node"
     , ""
-    , "function add(b, a) { return a + b; }"
-    , "function sub(b, a) { return a - b; }"
-    , "function eq(b, a) { return a === b; }"
+    , "var add = function (b) { return function (a) { return a + b; }; }"
+    , "var sub = function (b) { return function (a) { return a - b; }; }"
+    , "var eq = function (b) { return function (a) { return a === b; }; }"
     ]
         |> String.join "\n"
 
@@ -39,6 +41,7 @@ parseAndCompileSuite =
         parseAndGenerate : String -> Result Error String
         parseAndGenerate input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
+                |> Result.andThen Canonicalize.canonicalize
                 |> Result.map Generate.generate
     in
     Test.describe "Parse and compile"
@@ -63,8 +66,14 @@ parseAndCompileSuite =
 
                     output : String
                     output =
-                        [ "var " ++ varName ++ " = function (a, b, c, d) {"
-                        , "    return 3"
+                        [ "var " ++ varName ++ " = function (a) {"
+                        , "    return function (b) {"
+                        , "        return function (c) {"
+                        , "            return function (d) {"
+                        , "                return 3"
+                        , "            }"
+                        , "        }"
+                        , "    }"
                         , "}"
                         ]
                             |> String.join "\n"
@@ -79,9 +88,13 @@ parseAndCompileSuite =
 
                     output : String
                     output =
-                        [ "var " ++ varName ++ " = function (a, b) {"
-                        , "    return function (c, d) {"
-                        , "        return 3"
+                        [ "var " ++ varName ++ " = function (a) {"
+                        , "    return function (b) {"
+                        , "        return function (c) {"
+                        , "            return function (d) {"
+                        , "                return 3"
+                        , "            }"
+                        , "        }"
                         , "    }"
                         , "}"
                         ]
@@ -102,9 +115,13 @@ parseAndCompileSuite =
 
                     output : String
                     output =
-                        [ "var " ++ varName ++ " = function (a, b) {"
-                        , "    return function (c, d) {"
-                        , "        return 3"
+                        [ "var " ++ varName ++ " = function (a) {"
+                        , "    return function (b) {"
+                        , "        return function (c) {"
+                        , "            return function (d) {"
+                        , "                return 3"
+                        , "            }"
+                        , "        }"
                         , "    }"
                         , "}"
                         ]

@@ -37,12 +37,12 @@ type Def
     = Define VarName LocatedExpr
 
 
-type alias LocatedPattern =
-    Located Pattern
-
-
 
 -- PATTERN
+
+
+type alias LocatedPattern =
+    Located Pattern
 
 
 type Pattern
