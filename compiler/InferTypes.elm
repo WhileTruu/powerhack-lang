@@ -528,6 +528,7 @@ occurs ( name, type_ ) state =
     -- FIXME is this correct-ish? Create a test?
     -- Iirc something like \a -> potato gave the annotation of `forall a. a`,
     -- is that related?
+    -- Nope, not related and looks fine. :D
     if occursCheck name type_ then
         { state | errors = InfiniteType (TypeVar name) type_ :: state.errors }
 
@@ -724,19 +725,19 @@ generateVarName i =
 testSuite : Test
 testSuite =
     let
-        parseExprAndInferTypes : String -> Result () Annotation
+        parseExprAndInferTypes : String -> Result String Annotation
         parseExprAndInferTypes input =
             P.run Parse.Expression.expression input
-                |> Result.mapError (\_ -> ())
-                |> Result.andThen (Result.mapError (\_ -> ()) << Canonicalize.canonicalizeExpr)
-                |> Result.andThen (Result.mapError (\_ -> ()) << runForExpr)
+                |> Result.mapError Debug.toString
+                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalizeExpr)
+                |> Result.andThen (Result.mapError Debug.toString << runForExpr)
 
-        parseAndInferType : String -> Result () (Dict Name Annotation)
+        parseAndInferType : String -> Result String (Dict Name Annotation)
         parseAndInferType input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
-                |> Result.mapError (\_ -> ())
-                |> Result.andThen (Result.mapError (\_ -> ()) << Canonicalize.canonicalize)
-                |> Result.andThen (Result.mapError (\_ -> ()) << run)
+                |> Result.mapError Debug.toString
+                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalize)
+                |> Result.andThen (Result.mapError Debug.toString << run)
     in
     Test.describe "Infer types"
         [ Test.test "variable" <|
@@ -864,6 +865,31 @@ testSuite =
                             |> String.join "\n"
                 in
                 Expect.equal (Ok output)
+                    (parseAndInferType input
+                        |> Result.map
+                            (Dict.foldl
+                                (\k v a ->
+                                    a
+                                        ++ Name.toString k
+                                        ++ ": "
+                                        ++ prettyScheme v
+                                        ++ "\n"
+                                )
+                                ""
+                            )
+                        |> Result.map (String.dropRight 1)
+                    )
+        , Test.test "unbound variable" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        [ "foo = \\a -> potato 1"
+                        , ""
+                        ]
+                            |> String.join "\n"
+                in
+                Expect.equal (Err "[UnboundVariable (Name \"potato\"),UnboundVariable (Name \"potato\")]")
                     (parseAndInferType input
                         |> Result.map
                             (Dict.foldl
