@@ -412,26 +412,23 @@ recDefsHelp id rtv defs bodyCon rigidInfo flexInfo =
                 (AST.Define name expr) =
                     def
 
-                ( argType, id1 ) =
+                ( resultType, id1 ) =
                     fresh id
 
-                ( resultType, id2 ) =
-                    fresh id1
-
-                ( exprCon, id3 ) =
-                    constrain id2 rtv expr resultType
+                ( exprCon, id2 ) =
+                    constrain id1 rtv expr resultType
 
                 defCon : Constraint
                 defCon =
                     CLet
                         { header = Dict.empty
-                        , headerCon = CEqual argType resultType
+                        , headerCon = CTrue
                         , bodyCon = exprCon
                         }
             in
-            recDefsHelp id3 rtv otherDefs bodyCon rigidInfo <|
+            recDefsHelp id2 rtv otherDefs bodyCon rigidInfo <|
                 { cons = defCon :: flexInfo.cons
-                , headers = Dict.insert name argType flexInfo.headers
+                , headers = Dict.insert name resultType flexInfo.headers
                 }
 
 
