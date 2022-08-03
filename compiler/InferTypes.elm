@@ -30,23 +30,18 @@ primitives =
 
 run : AST.Module -> Result (List TypeError) (Dict Name Annotation)
 run module_ =
-    constrainModule (Id 0) module_
-        |> Tuple.first
-        |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
-        |> (\state ->
-                case state.errors of
-                    [] ->
-                        Ok
-                            (state.env
-                                |> Dict.map
-                                    (\_ a ->
-                                        generalize (TypeEnv Dict.empty) (applySubst state.subst a)
-                                    )
-                            )
+    let
+        { env, errors, subst } =
+            solve primitives
+                { env = Dict.empty, subst = nullSubst, errors = [] }
+                (Tuple.first (constrainModule (Id 0) module_))
+    in
+    case errors of
+        [] ->
+            Ok (Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env)
 
-                    e :: es ->
-                        Err (e :: es)
-           )
+        e :: es ->
+            Err (e :: es)
 
 
 runForExpr : AST.LocatedExpr -> Result (List TypeError) Annotation
@@ -54,20 +49,18 @@ runForExpr expr =
     let
         ( expectedType, id ) =
             fresh (Id 0)
-    in
-    constrain id primitives expr expectedType
-        |> Tuple.first
-        |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
-        |> (\state ->
-                case state.errors of
-                    [] ->
-                        Ok ( state.subst, expectedType )
 
-                    es ->
-                        Err es
-           )
-        |> Result.map (\( s, t ) -> applySubst s t)
-        |> Result.map (generalize (TypeEnv Dict.empty))
+        { env, errors, subst } =
+            solve primitives
+                { env = Dict.empty, subst = nullSubst, errors = [] }
+                (Tuple.first (constrain id primitives expr expectedType))
+    in
+    case errors of
+        [] ->
+            Ok (generalize (TypeEnv Dict.empty) (applySubst subst expectedType))
+
+        es ->
+            Err es
 
 
 
