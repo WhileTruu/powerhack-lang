@@ -354,28 +354,22 @@ emptyInfo =
 
 constrainRecursiveDefs : Id -> RTV -> List AST.Def -> Constraint -> ( Constraint, Id )
 constrainRecursiveDefs id rtv defs bodyCon =
-    recDefsHelp id rtv defs bodyCon emptyInfo emptyInfo
+    recDefsHelp id rtv defs bodyCon emptyInfo
 
 
-recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> Info -> ( Constraint, Id )
-recDefsHelp id rtv defs bodyCon rigidInfo flexInfo =
-    -- TODO get rid of rigidInfo? I only have flex stuff.
+recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> ( Constraint, Id )
+recDefsHelp id rtv defs bodyCon flexInfo =
     case defs of
         [] ->
             ( CLet
-                { header = rigidInfo.headers
-                , headerCon = CTrue
-                , bodyCon =
+                { header = flexInfo.headers
+                , headerCon =
                     CLet
                         { header = flexInfo.headers
-                        , headerCon =
-                            CLet
-                                { header = flexInfo.headers
-                                , headerCon = CTrue
-                                , bodyCon = CAnd flexInfo.cons
-                                }
-                        , bodyCon = CAnd [ CAnd rigidInfo.cons, bodyCon ]
+                        , headerCon = CTrue
+                        , bodyCon = CAnd flexInfo.cons
                         }
+                , bodyCon = bodyCon
                 }
             , id
             )
@@ -390,17 +384,9 @@ recDefsHelp id rtv defs bodyCon rigidInfo flexInfo =
 
                 ( exprCon, id2 ) =
                     constrain id1 rtv expr resultType
-
-                defCon : Constraint
-                defCon =
-                    CLet
-                        { header = Dict.empty
-                        , headerCon = CTrue
-                        , bodyCon = exprCon
-                        }
             in
-            recDefsHelp id2 rtv otherDefs bodyCon rigidInfo <|
-                { cons = defCon :: flexInfo.cons
+            recDefsHelp id2 rtv otherDefs bodyCon <|
+                { cons = exprCon :: flexInfo.cons
                 , headers = Dict.insert name resultType flexInfo.headers
                 }
 
