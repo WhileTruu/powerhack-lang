@@ -32,7 +32,10 @@ canonicalizeExpr sourceExpr =
         Source.Int int ->
             Ok (Located.replaceWith (Canonical.Int int) sourceExpr)
 
-        Source.Call { fn, arguments } ->
+        Source.Constructor name ->
+            Ok (Located.replaceWith (Canonical.Constructor name (Debug.todo "")) sourceExpr)
+
+        Source.Call fn arguments ->
             Result.andThen
                 (\canonicalFn ->
                     List.foldl
@@ -43,7 +46,7 @@ canonicalizeExpr sourceExpr =
                                         |> Result.map
                                             (\arg_ ->
                                                 Located.replaceWith
-                                                    (Canonical.Call { fn = fn_, argument = arg_ })
+                                                    (Canonical.Call fn_ arg_)
                                                     sourceExpr
                                             )
                                 )
@@ -54,17 +57,15 @@ canonicalizeExpr sourceExpr =
                 )
                 (canonicalizeExpr fn)
 
-        Source.Var { name } ->
-            Ok (Located.replaceWith (Canonical.Var { name = name }) sourceExpr)
+        Source.Var name ->
+            Ok (Located.replaceWith (Canonical.Var name) sourceExpr)
 
-        Source.Lambda { arguments, body } ->
+        Source.Lambda arguments body ->
             Result.map
                 (\canonicalBody ->
                     List.foldr
                         (\arg body_ ->
-                            Located.replaceWith
-                                (Canonical.Lambda { argument = arg, body = body_ })
-                                sourceExpr
+                            Located.replaceWith (Canonical.Lambda arg body_) sourceExpr
                         )
                         canonicalBody
                         arguments
@@ -93,17 +94,10 @@ canonicalizeExpr sourceExpr =
                 )
                 (canonicalizeExpr expr)
 
-        Source.If { test, then_, else_ } ->
+        Source.If test then_ else_ ->
             Result.map3
                 (\test_ then__ else__ ->
-                    Located.replaceWith
-                        (Canonical.If
-                            { test = test_
-                            , then_ = then__
-                            , else_ = else__
-                            }
-                        )
-                        sourceExpr
+                    Located.replaceWith (Canonical.If test_ then__ else__) sourceExpr
                 )
                 (canonicalizeExpr test)
                 (canonicalizeExpr then_)

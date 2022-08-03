@@ -1,19 +1,19 @@
 module Generate exposing (..)
 
-import AST.Canonical as Canonical
+import AST.Canonical as AST
 import Data.Located as Located
-import Data.VarName as VarName
+import Data.Name as Name
 
 
-generate : Canonical.Module -> String
+generate : AST.Module -> String
 generate module_ =
     List.map generateValue module_.values
         |> String.join "\n\n"
 
 
-generateValue : Canonical.Value -> String
-generateValue (Canonical.Value varName expr) =
-    "var " ++ VarName.toString (Located.unwrap varName) ++ " = " ++ generateExpr 0 expr
+generateValue : AST.Value -> String
+generateValue (AST.Value varName expr) =
+    "var " ++ Name.toString (Located.unwrap varName) ++ " = " ++ generateExpr 0 expr
 
 
 indent : Int -> String -> String
@@ -21,31 +21,35 @@ indent lvl string =
     String.repeat (lvl * 4) " " ++ string
 
 
-generateExpr : Int -> Canonical.LocatedExpr -> String
+generateExpr : Int -> AST.LocatedExpr -> String
 generateExpr lvl expr =
     case Located.unwrap expr of
-        Canonical.Int int ->
+        AST.Int int ->
             String.fromInt int
 
-        Canonical.Call { fn, argument } ->
+        AST.Constructor name _ ->
+            -- FIXME no types atm
+            Name.toString name
+
+        AST.Call fn argument ->
             generateExpr lvl fn ++ "(" ++ generateExpr lvl argument ++ ")"
 
-        Canonical.Var { name } ->
-            VarName.toString name
+        AST.Var name ->
+            Name.toString name
 
-        Canonical.Lambda { argument, body } ->
-            [ "function (" ++ VarName.toString argument ++ ") {"
+        AST.Lambda argument body ->
+            [ "function (" ++ Name.toString argument ++ ") {"
             , indent (lvl + 1) ("return " ++ generateExpr (lvl + 1) body)
             , indent lvl "}"
             ]
                 |> String.join "\n"
 
-        Canonical.Defs defs expr_ ->
+        AST.Defs defs expr_ ->
             [ "(function () {"
             , String.join "\n"
                 (List.map
-                    (\(Canonical.Define name defExpr) ->
-                        indent (lvl + 1) ("var " ++ VarName.toString name ++ " = " ++ generateExpr lvl defExpr)
+                    (\(AST.Define name defExpr) ->
+                        indent (lvl + 1) ("var " ++ Name.toString name ++ " = " ++ generateExpr lvl defExpr)
                     )
                     defs
                 )
@@ -54,7 +58,7 @@ generateExpr lvl expr =
             ]
                 |> String.join "\n"
 
-        Canonical.If { test, then_, else_ } ->
+        AST.If test then_ else_ ->
             [ "(function () {"
             , indent (lvl + 1) "if (" ++ generateExpr lvl test ++ ") {"
             , indent (lvl + 2) ("return " ++ generateExpr (lvl + 1) then_)

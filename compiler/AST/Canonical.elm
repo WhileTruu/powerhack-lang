@@ -1,7 +1,7 @@
 module AST.Canonical exposing (..)
 
 import Data.Located exposing (Located)
-import Data.VarName exposing (VarName)
+import Data.Name exposing (Name)
 
 
 type alias LocatedExpr =
@@ -10,11 +10,26 @@ type alias LocatedExpr =
 
 type Expr
     = Int Int
-    | Call { fn : LocatedExpr, argument : LocatedExpr }
-    | Var { name : VarName }
-    | Lambda { argument : VarName, body : LocatedExpr }
+    | Constructor Name Annotation
+    | Call LocatedExpr LocatedExpr
+    | Var Name
+    | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr
-    | If { test : LocatedExpr, then_ : LocatedExpr, else_ : LocatedExpr }
+    | If LocatedExpr LocatedExpr LocatedExpr
+
+
+type Annotation
+    = Forall FreeVars Type
+
+
+type FreeVars
+    = Dict Name ()
+
+
+type Type
+    = TLambda Type Type
+    | TType Name (List Type)
+    | TVar Name
 
 
 
@@ -22,7 +37,7 @@ type Expr
 
 
 type Def
-    = Define VarName LocatedExpr
+    = Define Name LocatedExpr
 
 
 
@@ -35,4 +50,4 @@ type alias Module =
 
 
 type Value
-    = Value (Located VarName) LocatedExpr
+    = Value (Located Name) LocatedExpr

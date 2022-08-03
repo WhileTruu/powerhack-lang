@@ -1,21 +1,21 @@
 module Parse.Expression exposing (expression)
 
-import AST.Source as Source
-import Data.VarName exposing (VarName)
+import AST.Source as AST
+import Data.Name exposing (Name)
 import Parse.Error as E
 import Parse.Parser as P
 import Parse.Variable
 import Parser.Advanced as P exposing ((|.), (|=))
 
 
-term : P.Parser E.Context E.Problem Source.LocatedExpr
+term : P.Parser E.Context E.Problem AST.LocatedExpr
 term =
     P.oneOf
         [ Parse.Variable.variable
-            |> P.map (\name -> Source.Var { name = name })
+            |> P.map AST.Var
             |> P.located
         , P.number
-            { int = Result.Ok Source.Int
+            { int = Result.Ok AST.Int
             , hex = Result.Err E.InvalidNumber
             , octal = Result.Err E.InvalidNumber
             , binary = Result.Err E.InvalidNumber
@@ -33,7 +33,7 @@ term =
         ]
 
 
-expression : P.Parser E.Context E.Problem Source.LocatedExpr
+expression : P.Parser E.Context E.Problem AST.LocatedExpr
 expression =
     P.oneOf
         [ if_
@@ -47,15 +47,15 @@ expression =
         ]
 
 
-chompExprEnd : Source.LocatedExpr -> P.Parser E.Context E.Problem Source.LocatedExpr
+chompExprEnd : AST.LocatedExpr -> P.Parser E.Context E.Problem AST.LocatedExpr
 chompExprEnd arg =
     P.loop [] (chompExprEndHelp arg)
 
 
 chompExprEndHelp :
-    Source.LocatedExpr
-    -> List Source.LocatedExpr
-    -> P.Parser E.Context E.Problem (P.Step (List Source.LocatedExpr) Source.LocatedExpr)
+    AST.LocatedExpr
+    -> List AST.LocatedExpr
+    -> P.Parser E.Context E.Problem (P.Step (List AST.LocatedExpr) AST.LocatedExpr)
 chompExprEndHelp arg vs =
     P.succeed identity
         |. P.ignoreables
@@ -68,25 +68,20 @@ chompExprEndHelp arg vs =
                 P.succeed (P.Done arg)
 
               else
-                P.succeed
-                    (Source.Call
-                        { fn = arg
-                        , arguments = List.reverse vs
-                        }
-                    )
+                P.succeed (AST.Call arg (List.reverse vs))
                     |> P.located
                     |> P.map P.Done
             ]
 
 
-defsOrVarAndChompExprEnd : P.Parser E.Context E.Problem Source.LocatedExpr
+defsOrVarAndChompExprEnd : P.Parser E.Context E.Problem AST.LocatedExpr
 defsOrVarAndChompExprEnd =
     P.loop [] defsOrVarAndChompExprEndHelp
 
 
 defsOrVarAndChompExprEndHelp :
-    List Source.Def
-    -> P.Parser E.Context E.Problem (P.Step (List Source.Def) Source.LocatedExpr)
+    List AST.Def
+    -> P.Parser E.Context E.Problem (P.Step (List AST.Def) AST.LocatedExpr)
 defsOrVarAndChompExprEndHelp args =
     P.oneOf
         [ P.succeed identity
@@ -95,7 +90,7 @@ defsOrVarAndChompExprEndHelp args =
             |> P.andThen
                 (\name ->
                     P.oneOf
-                        [ P.succeed (\body -> Source.Define name body)
+                        [ P.succeed (\body -> AST.Define name body)
                             |. P.symbol (P.Token "=" E.ExpectingEquals)
                             |. P.ignoreablesAndCheckIndent (<) E.ExpectingIndentation
                             |= P.lazy (\_ -> expression)
@@ -106,7 +101,7 @@ defsOrVarAndChompExprEndHelp args =
                                 |> P.map P.Done
 
                           else
-                            P.succeed (\expr -> Source.Defs (List.reverse args) expr)
+                            P.succeed (\expr -> AST.Defs (List.reverse args) expr)
                                 |= varAndChompExprEnd name
                                 |> P.inContext E.InDefs
                                 |> P.located
@@ -117,7 +112,7 @@ defsOrVarAndChompExprEndHelp args =
             P.problem E.ExpectingDef
 
           else
-            P.succeed (\expr -> Source.Defs (List.reverse args) expr)
+            P.succeed (\expr -> AST.Defs (List.reverse args) expr)
                 |= P.lazy (\_ -> expression)
                 |> P.inContext E.InDefs
                 |> P.located
@@ -125,43 +120,40 @@ defsOrVarAndChompExprEndHelp args =
         ]
 
 
-varAndChompExprEnd : VarName -> P.Parser E.Context E.Problem Source.LocatedExpr
+varAndChompExprEnd : Name -> P.Parser E.Context E.Problem AST.LocatedExpr
 varAndChompExprEnd name =
-    P.succeed (Source.Var { name = name })
+    P.succeed (AST.Var name)
         |> P.located
         |> P.andThen (\expr -> chompExprEnd expr)
 
 
-lambda : P.Parser E.Context E.Problem Source.LocatedExpr
+lambda : P.Parser E.Context E.Problem AST.LocatedExpr
 lambda =
     P.succeed
         (\( arg, args ) body ->
-            Source.Lambda
-                { arguments = arg :: args
-                , body =
-                    {- Run the promoting transformation on every subexpression,
-                       so that after parsing all the arguments aren't unqualified
-                       Vars but Arguments.
+            AST.Lambda
+                (arg :: args)
+                {- Run the promoting transformation on every subexpression,
+                   so that after parsing all the arguments aren't unqualified
+                   Vars but Arguments.
 
-                       Ie. the lambda parser can't return:
+                   Ie. the lambda parser can't return:
 
-                           -- \x -> x
-                           Lambda { argument = VarName "x", body = Var (Nothing, VarName "x") }
+                       -- \x -> x
+                       Lambda { argument = VarName "x", body = Var (Nothing, VarName "x") }
 
-                       And instead has to return:
+                   And instead has to return:
 
-                           -- \x -> x
-                           Lambda { argument = VarName "x", body = Argument (VarName "x") }
+                       -- \x -> x
+                       Lambda { argument = VarName "x", body = Argument (VarName "x") }
 
-                       TODO add a fuzz test for this invariant?
-                    -}
-                    body
-
-                -- |> Located.map
-                --     (Frontend.transform
-                --         (promoteArguments arguments)
-                --     )
-                }
+                   TODO add a fuzz test for this invariant?
+                -}
+                body
+         -- |> Located.map
+         --     (Frontend.transform
+         --         (promoteArguments arguments)
+         --     )
         )
         |. P.backslash
         |= P.oneOrMoreWith P.spacesOnly Parse.Variable.variable
@@ -173,16 +165,9 @@ lambda =
         |> P.located
 
 
-if_ : P.Parser E.Context E.Problem Source.LocatedExpr
+if_ : P.Parser E.Context E.Problem AST.LocatedExpr
 if_ =
-    P.succeed
-        (\test then_ else_ ->
-            Source.If
-                { test = test
-                , then_ = then_
-                , else_ = else_
-                }
-        )
+    P.succeed AST.If
         |. P.keyword (P.Token "if" E.ExpectingIf)
         |. P.ignoreables
         |= P.lazy (\_ -> expression)

@@ -9,7 +9,7 @@ module AST.Source exposing
     )
 
 import Data.Located as Located exposing (Located)
-import Data.VarName exposing (VarName)
+import Data.Name exposing (Name)
 
 
 
@@ -22,11 +22,12 @@ type alias LocatedExpr =
 
 type Expr
     = Int Int
-    | Call { fn : LocatedExpr, arguments : List LocatedExpr }
-    | Var { name : VarName }
-    | Lambda { arguments : List VarName, body : LocatedExpr }
+    | Constructor Name
+    | Call LocatedExpr (List LocatedExpr)
+    | Var Name
+    | Lambda (List Name) LocatedExpr
     | Defs (List Def) LocatedExpr
-    | If { test : LocatedExpr, then_ : LocatedExpr, else_ : LocatedExpr }
+    | If LocatedExpr LocatedExpr LocatedExpr
 
 
 
@@ -34,7 +35,7 @@ type Expr
 
 
 type Def
-    = Define VarName LocatedExpr
+    = Define Name LocatedExpr
 
 
 
@@ -46,7 +47,7 @@ type alias LocatedPattern =
 
 
 type Pattern
-    = PatternVar VarName
+    = PatternVar Name
 
 
 
@@ -59,9 +60,9 @@ type alias LocatedType =
 
 type Type
     = TLambda LocatedType LocatedType
-    | TVar VarName
-    | TType Located.Region VarName (List LocatedType)
-    | TTypeQual Located.Region VarName VarName (List LocatedType)
+    | TVar Name
+    | TType Located.Region Name (List LocatedType)
+    | TTypeQual Located.Region Name Name (List LocatedType)
 
 
 
@@ -74,4 +75,4 @@ type alias Module =
 
 
 type Value
-    = Value (Located VarName) LocatedExpr
+    = Value (Located Name) LocatedExpr
