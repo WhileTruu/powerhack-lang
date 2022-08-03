@@ -75,10 +75,10 @@ runForExpr expr =
 
 
 type Constraint
-    = CEqual Type Type
+    = CEqual Located.Region Type Type
     | CAnd (List Constraint)
-    | CLocal Name Type
-    | CForeign Name AST.Annotation Type
+    | CLocal Located.Region Name Type
+    | CForeign Located.Region Name AST.Annotation Type
     | CLet
         { header : Dict Name Type
         , headerCon : Constraint
@@ -237,19 +237,24 @@ type alias RTV =
 
 
 constrain : Id -> RTV -> AST.LocatedExpr -> Type -> ( Constraint, Id )
-constrain id rtv exp expected =
-    case Located.unwrap exp of
+constrain id rtv expr expected =
+    let
+        region : Located.Region
+        region =
+            Located.getRegion expr
+    in
+    case Located.unwrap expr of
         AST.Var var ->
-            ( CLocal var expected, id )
+            ( CLocal region var expected, id )
 
         AST.Lambda arg body ->
-            constrainLambda id rtv arg body expected
+            constrainLambda id rtv region arg body expected
 
         AST.Call func arg ->
-            constrainCall id rtv func arg expected
+            constrainCall id rtv region func arg expected
 
         AST.Int _ ->
-            ( CEqual typeInt expected, id )
+            ( CEqual region typeInt expected, id )
 
         AST.Defs defs body ->
             let
@@ -259,14 +264,14 @@ constrain id rtv exp expected =
             constrainRecursiveDefs id1 rtv defs bodyCon
 
         AST.If cond branch final ->
-            constrainIf id rtv cond branch final expected
+            constrainIf id rtv region cond branch final expected
 
         AST.Constructor name annotation ->
-            ( CForeign name annotation expected, id )
+            ( CForeign region name annotation expected, id )
 
 
-constrainLambda : Id -> RTV -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id )
-constrainLambda id rtv arg body expected =
+constrainLambda : Id -> RTV -> Located.Region -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainLambda id rtv region arg body expected =
     let
         ( argType, id1 ) =
             fresh id
@@ -283,14 +288,14 @@ constrainLambda id rtv arg body expected =
             , headerCon = CTrue
             , bodyCon = bodyCon
             }
-        , CEqual (TypeLambda argType resultType) expected
+        , CEqual region (TypeLambda argType resultType) expected
         ]
     , id3
     )
 
 
-constrainCall : Id -> RTV -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
-constrainCall id rtv func arg expected =
+constrainCall : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainCall id rtv region func arg expected =
     let
         ( funcType, id1 ) =
             fresh id
@@ -306,19 +311,23 @@ constrainCall id rtv func arg expected =
 
         ( argCon, id5 ) =
             constrain id4 rtv arg argType
+
+        funcRegion : Located.Region
+        funcRegion =
+            Located.getRegion func
     in
     ( CAnd
         [ funcCon
-        , CEqual funcType (TypeLambda argType resultType)
+        , CEqual funcRegion funcType (TypeLambda argType resultType)
         , argCon
-        , CEqual resultType expected
+        , CEqual region resultType expected
         ]
     , id5
     )
 
 
-constrainIf : Id -> RTV -> AST.LocatedExpr -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
-constrainIf id rtv cond branch final expected =
+constrainIf : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainIf id rtv region cond branch final expected =
     let
         ( condCon, id1 ) =
             constrain id rtv cond typeBool
@@ -335,7 +344,7 @@ constrainIf id rtv cond branch final expected =
     ( CAnd
         [ condCon
         , CAnd [ branchCon, finalCon ]
-        , CEqual branchType expected
+        , CEqual region branchType expected
         ]
     , id4
     )
@@ -437,7 +446,7 @@ type alias State =
 solve : RTV -> State -> Constraint -> State
 solve rtv state constraint =
     case constraint of
-        CEqual t1 t2 ->
+        CEqual _ t1 t2 ->
             let
                 answer : Result TypeError Subst
                 answer =
@@ -459,7 +468,7 @@ solve rtv state constraint =
                 state
                 constraints
 
-        CLocal name t ->
+        CLocal _ name t ->
             case lookupRTV rtv name of
                 Ok actual ->
                     let
@@ -477,7 +486,7 @@ solve rtv state constraint =
                 Err err ->
                     { state | errors = err :: state.errors }
 
-        CForeign name (AST.Forall freeVars srcType) expectation ->
+        CForeign _ name (AST.Forall freeVars srcType) expectation ->
             Debug.todo ""
 
         CLet { header, headerCon, bodyCon } ->
