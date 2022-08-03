@@ -20,10 +20,10 @@ import Test exposing (Test)
 
 primitives : RTV
 primitives =
+    -- FIXME These need to match the builtins in Compiler module
     Dict.fromList
         [ ( Name.fromString "add", TypeLambda typeInt (TypeLambda typeInt typeInt) )
         , ( Name.fromString "sub", TypeLambda typeInt (TypeLambda typeInt typeInt) )
-        , ( Name.fromString "gte", TypeLambda typeInt (TypeLambda typeInt typeBool) )
         , ( Name.fromString "eq", TypeLambda typeInt (TypeLambda typeInt typeBool) )
         ]
 

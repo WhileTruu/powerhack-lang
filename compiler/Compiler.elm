@@ -28,6 +28,8 @@ builtIns : String
 builtIns =
     [ "#!/usr/bin/env node"
     , ""
+
+    -- FIXME These need to match the primitives in InferTypes module
     , "var add = function (b) { return function (a) { return a + b; }; }"
     , "var sub = function (b) { return function (a) { return a - b; }; }"
     , "var eq = function (b) { return function (a) { return a === b; }; }"
