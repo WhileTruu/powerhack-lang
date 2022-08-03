@@ -357,10 +357,7 @@ inferTypesSuite =
                 let
                     input : String
                     input =
-                        [ "x = \\a ->"
-                        , "    1"
-                        , ""
-                        , "main = \\a ->"
+                        [ "main = \\arggg ->"
                         , "    fib 10 0 1"
                         , ""
                         , "fib = \\n a b ->"
@@ -382,7 +379,6 @@ inferTypesSuite =
                         , "identity: ∀ a. a -> a"
                         , "fib: Int -> Int -> Int -> Int"
                         , "main: ∀ a. a -> Int"
-                        , "x: Int"
                         ]
                             |> String.join "\n"
                 in
@@ -406,7 +402,7 @@ inferTypesSuite =
                 let
                     input : String
                     input =
-                        [ "foo = \\a -> a"
+                        [ "foo = \\a -> 1"
                         , ""
                         ]
                             |> String.join "\n"

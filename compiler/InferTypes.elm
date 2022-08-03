@@ -107,7 +107,7 @@ infer expr =
         |> Tuple.first
         |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
         |> (\state ->
-                case state.errors |> Debug.log "errors" of
+                case state.errors of
                     [] ->
                         Ok ( state.subst, expectedType )
 
