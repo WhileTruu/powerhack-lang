@@ -374,9 +374,14 @@ type alias Info =
     }
 
 
+emptyInfo : Info
+emptyInfo =
+    { cons = [], headers = Dict.empty }
+
+
 constrainRecursiveDefs : Id -> RTV -> List AST.Def -> Constraint -> ( Constraint, Id )
 constrainRecursiveDefs id rtv defs bodyCon =
-    recDefsHelp id rtv defs bodyCon { cons = [], headers = Dict.empty } { cons = [], headers = Dict.empty }
+    recDefsHelp id rtv defs bodyCon emptyInfo emptyInfo
 
 
 recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> Info -> ( Constraint, Id )
@@ -418,10 +423,9 @@ recDefsHelp id rtv defs bodyCon rigidInfo flexInfo =
 
                 defCon : Constraint
                 defCon =
-                    -- TODO this can just be an exprCon, I think
                     CLet
                         { header = Dict.empty
-                        , headerCon = CTrue
+                        , headerCon = CEqual argType resultType
                         , bodyCon = exprCon
                         }
             in
