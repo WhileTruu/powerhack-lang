@@ -8,20 +8,29 @@ import Data.Name as Name exposing (Name)
 
 constrainModule : Id -> AST.Module -> ( Constraint, Id )
 constrainModule id { values } =
-    constrainDecls id values
+    constrainDecls id
+        (List.map
+            (\(AST.Value name expr) ->
+                AST.Define (Located.unwrap name) expr
+            )
+            values
+        )
+        CSaveTheEnvironment
 
 
-constrainDecls : Id -> List AST.Value -> ( Constraint, Id )
-constrainDecls id values =
-    let
-        decls =
-            List.map
-                (\(AST.Value name expr) ->
-                    AST.Define (Located.unwrap name) expr
-                )
-                values
-    in
-    constrainRecursiveDefs id primitives decls CSaveTheEnvironment
+constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id )
+constrainDecls id decls finalConstraint =
+    case decls of
+        def :: defs ->
+            let
+                ( constraint, id1 ) =
+                    -- FIXME? as there's only one kind of Def I think this could just be CSaveTheEnvironment directly
+                    constrainDecls id defs finalConstraint
+            in
+            constrainRecursiveDefs id1 Dict.empty (def :: decls) constraint
+
+        [] ->
+            ( finalConstraint, id )
 
 
 run2 : AST.Module -> Result (List TypeError) (Dict Name Annotation)
@@ -30,7 +39,7 @@ run2 module_ =
         |> Tuple.first
         |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
         |> (\state ->
-                case state.errors |> Debug.log "errors" of
+                case state.errors of
                     [] ->
                         Ok
                             (state.env
