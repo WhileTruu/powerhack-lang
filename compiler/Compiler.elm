@@ -281,14 +281,14 @@ inferTypesSuite =
             P.run Parse.Expression.expression input
                 |> Result.mapError (\_ -> ())
                 |> Result.andThen (Result.mapError (\_ -> ()) << Canonicalize.canonicalizeExpr)
-                |> Result.andThen (Result.mapError (\_ -> ()) << InferTypes.run)
+                |> Result.andThen (Result.mapError (\_ -> ()) << InferTypes.runForExpr)
 
         parseAndInferType : String -> Result () (Dict Name InferTypes.Annotation)
         parseAndInferType input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.mapError (\_ -> ())
                 |> Result.andThen (Result.mapError (\_ -> ()) << Canonicalize.canonicalize)
-                |> Result.andThen (Result.mapError (\_ -> ()) << InferTypes.run2)
+                |> Result.andThen (Result.mapError (\_ -> ()) << InferTypes.run)
     in
     Test.describe "Infer types"
         [ Test.test "variable" <|
@@ -375,8 +375,6 @@ inferTypesSuite =
                         , "gte: Int -> Int -> Bool"
                         , "sub: Int -> Int -> Int"
                         , "add: Int -> Int -> Int"
-                        , "const: ∀ a b. a -> b -> a"
-                        , "identity: ∀ a. a -> a"
                         , "fib: Int -> Int -> Int -> Int"
                         , "main: ∀ a. a -> Int"
                         ]
@@ -413,8 +411,6 @@ inferTypesSuite =
                         , "gte: Int -> Int -> Bool"
                         , "sub: Int -> Int -> Int"
                         , "add: Int -> Int -> Int"
-                        , "const: ∀ a b. a -> b -> a"
-                        , "identity: ∀ a. a -> a"
                         , "foo: ∀ a. a -> Int"
                         ]
                             |> String.join "\n"

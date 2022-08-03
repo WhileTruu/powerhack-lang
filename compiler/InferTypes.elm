@@ -1,4 +1,4 @@
-module InferTypes exposing (Annotation, TypeError, errorToString, prettyScheme, run, run2)
+module InferTypes exposing (Annotation, TypeError, errorToString, prettyScheme, run, runForExpr)
 
 import AST.Canonical as AST
 import AssocList as Dict exposing (Dict)
@@ -6,35 +6,22 @@ import Data.Located as Located
 import Data.Name as Name exposing (Name)
 
 
-constrainModule : Id -> AST.Module -> ( Constraint, Id )
-constrainModule id { values } =
-    constrainDecls id
-        (List.map
-            (\(AST.Value name expr) ->
-                AST.Define (Located.unwrap name) expr
-            )
-            values
-        )
-        CSaveTheEnvironment
+
+-- RUN
 
 
-constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id )
-constrainDecls id decls finalConstraint =
-    case decls of
-        def :: defs ->
-            let
-                ( constraint, id1 ) =
-                    -- FIXME? as there's only one kind of Def I think this could just be CSaveTheEnvironment directly
-                    constrainDecls id defs finalConstraint
-            in
-            constrainRecursiveDefs id1 Dict.empty (def :: decls) constraint
-
-        [] ->
-            ( finalConstraint, id )
+primitives : RTV
+primitives =
+    Dict.fromList
+        [ ( Name.fromString "add", TypeLambda typeInt (TypeLambda typeInt typeInt) )
+        , ( Name.fromString "sub", TypeLambda typeInt (TypeLambda typeInt typeInt) )
+        , ( Name.fromString "gte", TypeLambda typeInt (TypeLambda typeInt typeBool) )
+        , ( Name.fromString "eq", TypeLambda typeInt (TypeLambda typeInt typeBool) )
+        ]
 
 
-run2 : AST.Module -> Result (List TypeError) (Dict Name Annotation)
-run2 module_ =
+run : AST.Module -> Result (List TypeError) (Dict Name Annotation)
+run module_ =
     constrainModule (Id 0) module_
         |> Tuple.first
         |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
@@ -52,6 +39,45 @@ run2 module_ =
                     e :: es ->
                         Err (e :: es)
            )
+
+
+runForExpr : AST.LocatedExpr -> Result (List TypeError) Annotation
+runForExpr expr =
+    let
+        ( expectedType, id ) =
+            fresh (Id 0)
+    in
+    constrain id primitives expr expectedType
+        |> Tuple.first
+        |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
+        |> (\state ->
+                case state.errors of
+                    [] ->
+                        Ok ( state.subst, expectedType )
+
+                    es ->
+                        Err es
+           )
+        |> Result.map (\( s, t ) -> applySubst s t)
+        |> Result.map (generalize (TypeEnv Dict.empty))
+
+
+
+-- CONSTRAINTS
+
+
+type Constraint
+    = CEqual Type Type
+    | CAnd (List Constraint)
+    | CLocal Name Type
+    | CForeign Name AST.Annotation Type
+    | CLet
+        { header : Dict Name Type
+        , headerCon : Constraint
+        , bodyCon : Constraint
+        }
+    | CTrue
+    | CSaveTheEnvironment
 
 
 
@@ -87,57 +113,6 @@ typeBool =
 
 
 
--- RUN
-
-
-run : AST.LocatedExpr -> Result TypeError Annotation
-run expr =
-    infer expr
-        |> Result.map (\( s, t ) -> applySubst s t)
-        |> Result.map (generalize (TypeEnv Dict.empty))
-
-
-infer : AST.LocatedExpr -> Result TypeError ( Dict Name Type, Type )
-infer expr =
-    let
-        ( expectedType, id ) =
-            fresh (Id 0)
-    in
-    constrain id primitives expr expectedType
-        |> Tuple.first
-        |> solve primitives { env = Dict.empty, subst = nullSubst, errors = [] }
-        |> (\state ->
-                case state.errors of
-                    [] ->
-                        Ok ( state.subst, expectedType )
-
-                    e :: es ->
-                        Err e
-           )
-
-
-primitives : RTV
-primitives =
-    Dict.fromList
-        [ ( Name.fromString "identity"
-          , TypeLambda (TypeVar (Name.fromString "a")) (TypeVar (Name.fromString "a"))
-          )
-        , ( Name.fromString "const"
-          , TypeLambda
-                (TypeVar (Name.fromString "a"))
-                (TypeLambda
-                    (TypeVar (Name.fromString "b"))
-                    (TypeVar (Name.fromString "a"))
-                )
-          )
-        , ( Name.fromString "add", TypeLambda typeInt (TypeLambda typeInt typeInt) )
-        , ( Name.fromString "sub", TypeLambda typeInt (TypeLambda typeInt typeInt) )
-        , ( Name.fromString "gte", TypeLambda typeInt (TypeLambda typeInt typeBool) )
-        , ( Name.fromString "eq", TypeLambda typeInt (TypeLambda typeInt typeBool) )
-        ]
-
-
-
 -- CONTEXT
 
 
@@ -156,38 +131,6 @@ type Id
 fresh : Id -> ( Type, Id )
 fresh (Id id) =
     ( TypeVar (Name.fromString ("u" ++ String.fromInt id)), Id (id + 1) )
-
-
-
--- SUBSTITUTION
-
-
-type alias Subst =
-    Dict Name Type
-
-
-nullSubst : Subst
-nullSubst =
-    Dict.empty
-
-
-composeSubst : Subst -> Subst -> Subst
-composeSubst s1 s2 =
-    Dict.union (Dict.map (\_ -> applySubst s1) s2) s1
-
-
-applySubst : Subst -> Type -> Type
-applySubst subst type_ =
-    case type_ of
-        TypeVar var ->
-            Maybe.withDefault (TypeVar var) (Dict.get var subst)
-
-        TypeLambda arg res ->
-            TypeLambda (applySubst subst arg) (applySubst subst res)
-
-        TypeApplied name applied ->
-            -- TODO: Find out what should go here, not sure this is correct
-            TypeApplied name (List.map (applySubst subst) applied)
 
 
 
@@ -229,21 +172,34 @@ ftv ty =
 
 
 
--- TYPING RULES
+-- CONSTRAIN
 
 
-type Constraint
-    = CEqual Type Type
-    | CAnd (List Constraint)
-    | CLocal Name Type
-    | CForeign Name AST.Annotation Type
-    | CLet
-        { header : Dict Name Type
-        , headerCon : Constraint
-        , bodyCon : Constraint
-        }
-    | CTrue
-    | CSaveTheEnvironment
+constrainModule : Id -> AST.Module -> ( Constraint, Id )
+constrainModule id { values } =
+    constrainDecls id
+        (List.map
+            (\(AST.Value name expr) ->
+                AST.Define (Located.unwrap name) expr
+            )
+            values
+        )
+        CSaveTheEnvironment
+
+
+constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id )
+constrainDecls id decls finalConstraint =
+    case decls of
+        def :: defs ->
+            let
+                ( constraint, id1 ) =
+                    -- FIXME? as there's only one kind of Def I think this could just be CSaveTheEnvironment directly
+                    constrainDecls id defs finalConstraint
+            in
+            constrainRecursiveDefs id1 Dict.empty (def :: decls) constraint
+
+        [] ->
+            ( finalConstraint, id )
 
 
 {-|
@@ -442,64 +398,39 @@ recDefsHelp id rtv defs bodyCon rigidInfo flexInfo =
 
 
 
--- CONSTRAINT SOLVER
+-- SUBSTITUTION
 
 
-unifies : Type -> Type -> Result TypeError Subst
-unifies t1 t2 =
-    if t1 == t2 then
-        Ok nullSubst
-
-    else
-        case ( t1, t2 ) of
-            ( TypeVar a, t ) ->
-                bind a t
-
-            ( t, TypeVar a ) ->
-                bind a t
-
-            ( TypeLambda l r, TypeLambda l_ r_ ) ->
-                unifyMany [ l, r ] [ l_, r_ ]
-
-            ( _, _ ) ->
-                Err (UnificationFail t1 t2)
+type alias Subst =
+    Dict Name Type
 
 
-{-| Creates a fresh unification variable and binds it to the given type
--}
-bind : Name -> Type -> Result TypeError Subst
-bind a t =
-    if t == TypeVar a then
-        Ok Dict.empty
-
-    else if occursCheck a t then
-        Result.Err (InfiniteType (TypeVar a) t)
-
-    else
-        Ok (Dict.singleton a t)
+nullSubst : Subst
+nullSubst =
+    Dict.empty
 
 
-occursCheck : Name -> Type -> Bool
-occursCheck a t =
-    Dict.member a (ftv t)
+composeSubst : Subst -> Subst -> Subst
+composeSubst s1 s2 =
+    Dict.union (Dict.map (\_ -> applySubst s1) s2) s1
 
 
-unifyMany : List Type -> List Type -> Result TypeError Subst
-unifyMany xs1 xs2 =
-    case ( xs1, xs2 ) of
-        ( [], [] ) ->
-            Ok nullSubst
+applySubst : Subst -> Type -> Type
+applySubst subst type_ =
+    case type_ of
+        TypeVar var ->
+            Maybe.withDefault (TypeVar var) (Dict.get var subst)
 
-        ( t1 :: ts1, t2 :: ts2 ) ->
-            unifies t1 t2
-                |> Result.andThen
-                    (\su1 ->
-                        unifyMany (List.map (applySubst su1) ts1) (List.map (applySubst su1) ts2)
-                            |> Result.map (Dict.union su1)
-                    )
+        TypeLambda arg res ->
+            TypeLambda (applySubst subst arg) (applySubst subst res)
 
-        ( t1, t2 ) ->
-            Err (UnificationMismatch t1 t2)
+        TypeApplied name applied ->
+            -- TODO: Find out what should go here, not sure this is correct
+            TypeApplied name (List.map (applySubst subst) applied)
+
+
+
+-- SOLVE
 
 
 type alias State =
@@ -591,12 +522,71 @@ lookupRTV rtv x =
 
 occurs : ( Name, Type ) -> State -> State
 occurs ( name, type_ ) state =
-    -- FIXME is this correct-ish?
+    -- FIXME is this correct-ish? Create a test?
+    -- Iirc something like \a -> potato gave the annotation of `forall a. a`,
+    -- is that related?
     if occursCheck name type_ then
         { state | errors = InfiniteType (TypeVar name) type_ :: state.errors }
 
     else
         state
+
+
+unifies : Type -> Type -> Result TypeError Subst
+unifies t1 t2 =
+    if t1 == t2 then
+        Ok nullSubst
+
+    else
+        case ( t1, t2 ) of
+            ( TypeVar a, t ) ->
+                bind a t
+
+            ( t, TypeVar a ) ->
+                bind a t
+
+            ( TypeLambda l r, TypeLambda l_ r_ ) ->
+                unifyMany [ l, r ] [ l_, r_ ]
+
+            ( _, _ ) ->
+                Err (UnificationFail t1 t2)
+
+
+{-| Creates a fresh unification variable and binds it to the given type
+-}
+bind : Name -> Type -> Result TypeError Subst
+bind a t =
+    if t == TypeVar a then
+        Ok Dict.empty
+
+    else if occursCheck a t then
+        Result.Err (InfiniteType (TypeVar a) t)
+
+    else
+        Ok (Dict.singleton a t)
+
+
+occursCheck : Name -> Type -> Bool
+occursCheck a t =
+    Dict.member a (ftv t)
+
+
+unifyMany : List Type -> List Type -> Result TypeError Subst
+unifyMany xs1 xs2 =
+    case ( xs1, xs2 ) of
+        ( [], [] ) ->
+            Ok nullSubst
+
+        ( t1 :: ts1, t2 :: ts2 ) ->
+            unifies t1 t2
+                |> Result.andThen
+                    (\su1 ->
+                        unifyMany (List.map (applySubst su1) ts1) (List.map (applySubst su1) ts2)
+                            |> Result.map (Dict.union su1)
+                    )
+
+        ( t1, t2 ) ->
+            Err (UnificationMismatch t1 t2)
 
 
 
