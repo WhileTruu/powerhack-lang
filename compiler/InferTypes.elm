@@ -11,6 +11,7 @@ import Expect
 import Parse
 import Parse.Expression
 import Parser.Advanced as P
+import String.Extra
 import Test exposing (Test)
 
 
@@ -523,7 +524,7 @@ occurs ( name, type_ ) state =
     -- is that related?
     -- Nope, not related and looks fine. :D
     if occursCheck name type_ then
-        { state | errors = InfiniteType (TypeVar name) type_ :: state.errors }
+        { state | errors = InfiniteTypeFromOccurs (TypeVar name) type_ :: state.errors }
 
     else
         state
@@ -562,7 +563,7 @@ bind a t =
         Ok Dict.empty
 
     else if occursCheck a t then
-        Result.Err (InfiniteType (TypeVar a) t)
+        Result.Err (InfiniteTypeFromBind (TypeVar a) t)
 
     else
         Ok (Dict.singleton a t)
@@ -579,7 +580,8 @@ occursCheck a t =
 
 type TypeError
     = UnificationFail Type Type
-    | InfiniteType Type Type
+    | InfiniteTypeFromOccurs Type Type
+    | InfiniteTypeFromBind Type Type
     | UnboundVariable Name
 
 
@@ -704,158 +706,111 @@ generateVarName i =
 testSuite : Test
 testSuite =
     let
-        parseExprAndInferTypes : String -> Result String Annotation
+        parseExprAndInferTypes : String -> Result String String
         parseExprAndInferTypes input =
             P.run Parse.Expression.expression input
                 |> Result.mapError Debug.toString
                 |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalizeExpr)
                 |> Result.andThen (Result.mapError Debug.toString << runForExpr)
+                |> Result.map prettyScheme
 
-        parseAndInferType : String -> Result String (Dict Name Annotation)
+        parseAndInferType : String -> Result String String
         parseAndInferType input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.mapError Debug.toString
                 |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalize)
                 |> Result.andThen (Result.mapError Debug.toString << run)
+                |> Result.map
+                    (Dict.foldl
+                        (\k v a ->
+                            a
+                                ++ Name.toString k
+                                ++ ": "
+                                ++ prettyScheme v
+                                ++ "\n"
+                        )
+                        ""
+                    )
+                |> Result.map (String.dropRight 1)
+
+        primitiveTypes : List String
+        primitiveTypes =
+            [ "eq: Int -> Int -> Bool"
+            , "sub: Int -> Int -> Int"
+            , "add: Int -> Int -> Int"
+            ]
     in
     Test.describe "Infer types"
         [ Test.test "variable" <|
             \_ ->
-                let
-                    input : String
-                    input =
-                        "\\a -> a"
-
-                    output : String
-                    output =
-                        "∀ a. a -> a"
-                in
-                Expect.equal
-                    (parseExprAndInferTypes input
-                        |> Result.map prettyScheme
-                    )
-                    (Ok output)
+                "\\a -> a"
+                    |> parseExprAndInferTypes
+                    |> Expect.equal (Ok "∀ a. a -> a")
         , Test.test "variable 2" <|
             \_ ->
-                let
-                    input : String
-                    input =
-                        [ "\\a ->"
-                        , "  x = 1"
-                        , "  1"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        "∀ a. a -> Int"
-                in
-                Expect.equal
-                    (parseExprAndInferTypes input
-                        |> Result.map prettyScheme
-                    )
-                    (Ok output)
+                """
+                \\a ->
+                    x = 1
+                    1
+                """
+                    |> (String.Extra.unindent >> String.trim)
+                    |> parseExprAndInferTypes
+                    |> Expect.equal (Ok "∀ a. a -> Int")
         , Test.test "variable 3" <|
             \_ ->
-                let
-                    input : String
-                    input =
-                        [ "\\x ->"
-                        , "    fib = \\n a b ->"
-                        , "       if eq 0 n then"
-                        , "           a"
-                        , "       else"
-                        , "           fib (sub 1 n) b (add b a)"
-                        , ""
-                        , "    fib 10 0 1"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        "∀ a. a -> Int"
-                in
-                Expect.equal
-                    (parseExprAndInferTypes input
-                        |> Result.map prettyScheme
-                    )
-                    (Ok output)
+                """
+                \\x ->
+                    fib = \\n a b ->
+                        if eq 0 n then
+                            a
+                        else
+                            fib (sub 1 n) b (add b a)
+                    
+                    fib 10 0 1
+                """
+                    |> (String.Extra.unindent >> String.trim)
+                    |> parseExprAndInferTypes
+                    |> Expect.equal (Ok "∀ a. a -> Int")
         , Test.test "parse & infer type" <|
             \_ ->
                 let
-                    input : String
-                    input =
-                        [ "main = \\arggg ->"
-                        , "    fib 10 0 1"
-                        , ""
-                        , "fib = \\n a b ->"
-                        , "    if eq 0 n then"
-                        , "        a"
-                        , "    else"
-                        , "        fib (sub 1 n) b (add b a)"
-                        , ""
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        [ "eq: Int -> Int -> Bool"
-                        , "sub: Int -> Int -> Int"
-                        , "add: Int -> Int -> Int"
-                        , "fib: Int -> Int -> Int -> Int"
+                    expected : String
+                    expected =
+                        [ "fib: Int -> Int -> Int -> Int"
                         , "main: ∀ a. a -> Int"
                         ]
+                            |> (++) primitiveTypes
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output)
-                    (parseAndInferType input
-                        |> Result.map
-                            (Dict.foldl
-                                (\k v a ->
-                                    a
-                                        ++ Name.toString k
-                                        ++ ": "
-                                        ++ prettyScheme v
-                                        ++ "\n"
-                                )
-                                ""
-                            )
-                        |> Result.map (String.dropRight 1)
-                    )
+                """
+                main = \\arggg ->
+                    fib 10 0 1
+
+                fib = \\n a b ->
+                    if eq 0 n then
+                        a
+                    else
+                        fib (sub 1 n) b (add b a)
+                """
+                    |> (String.Extra.unindent >> String.trim)
+                    |> parseAndInferType
+                    |> Expect.equal (Ok expected)
         , Test.test "parse & infer type basic" <|
             \_ ->
                 let
                     input : String
                     input =
-                        [ "foo = \\a -> 1"
-                        , ""
-                        ]
-                            |> String.join "\n"
+                        "foo = \\a -> 1"
 
-                    output : String
-                    output =
-                        [ "eq: Int -> Int -> Bool"
-                        , "sub: Int -> Int -> Int"
-                        , "add: Int -> Int -> Int"
-                        , "foo: ∀ a. a -> Int"
+                    expected : String
+                    expected =
+                        [ "foo: ∀ a. a -> Int"
                         ]
+                            |> (++) primitiveTypes
                             |> String.join "\n"
                 in
-                Expect.equal (Ok output)
-                    (parseAndInferType input
-                        |> Result.map
-                            (Dict.foldl
-                                (\k v a ->
-                                    a
-                                        ++ Name.toString k
-                                        ++ ": "
-                                        ++ prettyScheme v
-                                        ++ "\n"
-                                )
-                                ""
-                            )
-                        |> Result.map (String.dropRight 1)
-                    )
+                parseAndInferType input
+                    |> Expect.equal (Ok expected)
         , Test.test "unbound variable" <|
             \_ ->
                 let
@@ -865,20 +820,11 @@ testSuite =
                         , ""
                         ]
                             |> String.join "\n"
+
+                    expected : String
+                    expected =
+                        "[UnboundVariable (Name \"potato\"),UnboundVariable (Name \"potato\")]"
                 in
-                Expect.equal (Err "[UnboundVariable (Name \"potato\"),UnboundVariable (Name \"potato\")]")
-                    (parseAndInferType input
-                        |> Result.map
-                            (Dict.foldl
-                                (\k v a ->
-                                    a
-                                        ++ Name.toString k
-                                        ++ ": "
-                                        ++ prettyScheme v
-                                        ++ "\n"
-                                )
-                                ""
-                            )
-                        |> Result.map (String.dropRight 1)
-                    )
+                parseAndInferType input
+                    |> Expect.equal (Err expected)
         ]
