@@ -543,7 +543,12 @@ unifies t1 t2 =
                 bind a t
 
             ( TypeLambda l r, TypeLambda l_ r_ ) ->
-                unifyMany [ l, r ] [ l_, r_ ]
+                unifies l l_
+                    |> Result.andThen
+                        (\su1 ->
+                            unifies (applySubst su1 r) (applySubst su1 r_)
+                                |> Result.map (Dict.union su1)
+                        )
 
             ( _, _ ) ->
                 Err (UnificationFail t1 t2)
@@ -568,24 +573,6 @@ occursCheck a t =
     Dict.member a (ftv t)
 
 
-unifyMany : List Type -> List Type -> Result TypeError Subst
-unifyMany xs1 xs2 =
-    case ( xs1, xs2 ) of
-        ( [], [] ) ->
-            Ok nullSubst
-
-        ( t1 :: ts1, t2 :: ts2 ) ->
-            unifies t1 t2
-                |> Result.andThen
-                    (\su1 ->
-                        unifyMany (List.map (applySubst su1) ts1) (List.map (applySubst su1) ts2)
-                            |> Result.map (Dict.union su1)
-                    )
-
-        ( t1, t2 ) ->
-            Err (UnificationMismatch t1 t2)
-
-
 
 -- ERROR
 
@@ -594,7 +581,6 @@ type TypeError
     = UnificationFail Type Type
     | InfiniteType Type Type
     | UnboundVariable Name
-    | UnificationMismatch (List Type) (List Type)
 
 
 errorToString : TypeError -> String
@@ -814,7 +800,6 @@ testSuite =
                     output : String
                     output =
                         [ "eq: Int -> Int -> Bool"
-                        , "gte: Int -> Int -> Bool"
                         , "sub: Int -> Int -> Int"
                         , "add: Int -> Int -> Int"
                         , "fib: Int -> Int -> Int -> Int"
@@ -850,7 +835,6 @@ testSuite =
                     output : String
                     output =
                         [ "eq: Int -> Int -> Bool"
-                        , "gte: Int -> Int -> Bool"
                         , "sub: Int -> Int -> Int"
                         , "add: Int -> Int -> Int"
                         , "foo: ∀ a. a -> Int"
