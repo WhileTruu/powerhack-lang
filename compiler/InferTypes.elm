@@ -519,10 +519,17 @@ lookupRTV rtv x =
 
 occurs : ( Name, Type ) -> State -> State
 occurs ( name, type_ ) state =
-    -- FIXME is this correct-ish? Create a test?
-    -- Iirc something like \a -> potato gave the annotation of `forall a. a`,
-    -- is that related?
-    -- Nope, not related and looks fine. :D
+    {- FIXME is this correct-ish? Create a test?
+       Iirc something like \a -> potato gave the annotation of `forall a. a`,
+       is that related?
+       Nope, not related and looks fine. :D
+
+       Turns out the one I was thinking about was a recursive value `x = x + 1`.
+       Those don't give errors and result in an `forall a. a`.
+       https://gist.github.com/evancz/07436448b7d6c947f21742dab46d1218
+
+       I suppose this has nothing to do with occurs at all.
+    -}
     if occursCheck name type_ then
         { state | errors = InfiniteTypeFromOccurs (TypeVar name) type_ :: state.errors }
 
@@ -827,4 +834,71 @@ testSuite =
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
+        , Test.skip <|
+            Test.test "recursive value" <|
+                -- FIXME some sort of cycle detection thing?
+                -- https://gist.github.com/evancz/07436448b7d6c947f21742dab46d1218
+                \_ ->
+                    "x = x + 1"
+                        |> parseAndInferType
+                        |> Expect.err
+        , Test.test "unification fail" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        [ "bar = \\x -> foo 1 1"
+                        , "foo = \\a -> a + 1"
+                        ]
+                            |> String.join "\n"
+
+                    expected : String
+                    expected =
+                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u10\")) (TypeVar (Name \"u11\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u19\")) (TypeVar (Name \"u20\")))]"
+                in
+                parseAndInferType input
+                    |> Expect.equal (Err expected)
+        , Test.test "weird case A" <|
+            \_ ->
+                let
+                    input : String
+                    input =
+                        [ "bar = \\x -> foo 1"
+                        , "foo = \\a -> a + 1"
+                        ]
+                            |> String.join "\n"
+
+                    expected : String
+                    expected =
+                        [ "foo: Int -> Int"
+                        , "bar: ∀ a. a -> Int"
+                        ]
+                            |> (++) primitiveTypes
+                            |> String.join "\n"
+                in
+                parseAndInferType input
+                    |> Expect.equal (Ok expected)
+        , Test.test "weird case B" <|
+            -- FIXME foo's type will be different based on the order of the definitions
+            \_ ->
+                let
+                    input : String
+                    input =
+                        [ "foo = \\a -> a + 1"
+                        , "bar = \\x -> foo 1"
+                        ]
+                            |> String.join "\n"
+
+                    expected : String
+                    expected =
+                        [ "foo: Int -> Int"
+                        , "bar: ∀ a. a -> Int"
+                        ]
+                            |> (++) primitiveTypes
+                            |> String.join "\n"
+                in
+                parseAndInferType input
+                    |> Expect.equal (Ok expected)
+        , Test.todo "unification fail occurs"
+        , Test.todo "unification fail bind"
         ]
