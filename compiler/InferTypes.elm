@@ -888,21 +888,4 @@ testSuite =
                             )
                             expected
                         )
-        , Test.test "syntax error with +" <|
-            -- Not really the place for syntax error tests
-            -- FIXME foo's type will be different based on the order of the definitions,
-            -- is that because the parser will just give up and succeed at the `+`? not cool mr. parser
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "foo = \\a -> a + 1"
-                        , "bar = \\x -> foo 1"
-                        ]
-                            |> String.join "\n"
-                in
-                parseAndInferType input
-                    |> Expect.err
-        , Test.todo "infinite type from occurs"
-        , Test.todo "infinite type from bind"
         ]
