@@ -8,6 +8,7 @@ import Data.FilePath as FilePath
 import Data.Located as Located
 import Data.Name as Name exposing (Name)
 import Expect
+import Fuzz
 import Parse
 import Parse.Expression
 import Parser.Advanced as P
@@ -858,37 +859,22 @@ testSuite =
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
-        , Test.test "weird case A" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "bar = \\x -> foo 1"
-                        , "foo = \\a -> a + 1"
-                        ]
+        , let
+            fuzzer : Fuzz.Fuzzer String
+            fuzzer =
+                Fuzz.map2
+                    (\a b ->
+                        List.sortBy Tuple.first [ a, b ]
+                            |> List.map Tuple.second
                             |> String.join "\n"
-
-                    expected : String
-                    expected =
-                        [ "foo: Int -> Int"
-                        , "bar: ∀ a. a -> Int"
-                        ]
-                            |> (++) primitiveTypes
-                            |> String.join "\n"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Ok expected)
-        , Test.test "weird case B" <|
+                    )
+                    (Fuzz.map (\a -> ( a, "foo = \\a -> a + 1" )) Fuzz.int)
+                    (Fuzz.map (\a -> ( a, "bar = \\x -> foo 1" )) Fuzz.int)
+          in
+          Test.fuzz fuzzer "definition order does not affect type" <|
             -- FIXME foo's type will be different based on the order of the definitions
-            \_ ->
+            \input ->
                 let
-                    input : String
-                    input =
-                        [ "foo = \\a -> a + 1"
-                        , "bar = \\x -> foo 1"
-                        ]
-                            |> String.join "\n"
-
                     expected : String
                     expected =
                         [ "foo: Int -> Int"
@@ -899,6 +885,6 @@ testSuite =
                 in
                 parseAndInferType input
                     |> Expect.equal (Ok expected)
-        , Test.todo "unification fail occurs"
-        , Test.todo "unification fail bind"
+        , Test.todo "infinite type from occurs"
+        , Test.todo "infinite type from bind"
         ]
