@@ -840,7 +840,7 @@ testSuite =
                 -- FIXME some sort of cycle detection thing?
                 -- https://gist.github.com/evancz/07436448b7d6c947f21742dab46d1218
                 \_ ->
-                    "x = x + 1"
+                    "x = add x 1"
                         |> parseAndInferType
                         |> Expect.err
         , Test.test "unification fail" <|
@@ -849,13 +849,13 @@ testSuite =
                     input : String
                     input =
                         [ "bar = \\x -> foo 1 1"
-                        , "foo = \\a -> a + 1"
+                        , "foo = \\a -> add a 1"
                         ]
                             |> String.join "\n"
 
                     expected : String
                     expected =
-                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u10\")) (TypeVar (Name \"u11\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u19\")) (TypeVar (Name \"u20\")))]"
+                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u22\")) (TypeVar (Name \"u23\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u31\")) (TypeVar (Name \"u32\")))]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -868,23 +868,40 @@ testSuite =
                             |> List.map Tuple.second
                             |> String.join "\n"
                     )
-                    (Fuzz.map (\a -> ( a, "foo = \\a -> a + 1" )) Fuzz.int)
+                    (Fuzz.map (\a -> ( a, "foo = \\a -> add a 1" )) Fuzz.int)
                     (Fuzz.map (\a -> ( a, "bar = \\x -> foo 1" )) Fuzz.int)
           in
           Test.fuzz fuzzer "definition order does not affect type" <|
-            -- FIXME foo's type will be different based on the order of the definitions
             \input ->
                 let
-                    expected : String
+                    expected : List String
                     expected =
-                        [ "foo: Int -> Int"
-                        , "bar: ∀ a. a -> Int"
+                        "foo: Int -> Int" :: "bar: ∀ a. a -> Int" :: primitiveTypes
+                in
+                parseAndInferType input
+                    |> Expect.all
+                        (List.map
+                            (\a ->
+                                Expect.true ("Expected types to contain " ++ a)
+                                    << Result.withDefault False
+                                    << Result.map (String.contains a)
+                            )
+                            expected
+                        )
+        , Test.test "syntax error with +" <|
+            -- Not really the place for syntax error tests
+            -- FIXME foo's type will be different based on the order of the definitions
+            \_ ->
+                let
+                    input : String
+                    input =
+                        [ "foo = \\a -> a + 1"
+                        , "bar = \\x -> foo 1"
                         ]
-                            |> (++) primitiveTypes
                             |> String.join "\n"
                 in
                 parseAndInferType input
-                    |> Expect.equal (Ok expected)
+                    |> Expect.err
         , Test.todo "infinite type from occurs"
         , Test.todo "infinite type from bind"
         ]
