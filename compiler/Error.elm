@@ -127,6 +127,9 @@ deadEndToReport fileContents deadEnd =
 
             E.ExpectingElse ->
                 "I was expecting to see the " ++ Console.green "else" ++ " keyword next."
+
+            E.ExpectingEnd ->
+                "Whatever is here, I wasn't expecting it!"
         , deadEndToString deadEnd
         ]
             |> String.join "\n\n"

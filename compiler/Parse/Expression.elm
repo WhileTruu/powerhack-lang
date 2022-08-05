@@ -129,32 +129,7 @@ varAndChompExprEnd name =
 
 lambda : P.Parser E.Context E.Problem AST.LocatedExpr
 lambda =
-    P.succeed
-        (\( arg, args ) body ->
-            AST.Lambda
-                (arg :: args)
-                {- Run the promoting transformation on every subexpression,
-                   so that after parsing all the arguments aren't unqualified
-                   Vars but Arguments.
-
-                   Ie. the lambda parser can't return:
-
-                       -- \x -> x
-                       Lambda { argument = VarName "x", body = Var (Nothing, VarName "x") }
-
-                   And instead has to return:
-
-                       -- \x -> x
-                       Lambda { argument = VarName "x", body = Argument (VarName "x") }
-
-                   TODO add a fuzz test for this invariant?
-                -}
-                body
-         -- |> Located.map
-         --     (Frontend.transform
-         --         (promoteArguments arguments)
-         --     )
-        )
+    P.succeed (\( arg, args ) body -> AST.Lambda (arg :: args) body)
         |. P.backslash
         |= P.oneOrMoreWith P.spacesOnly Parse.Variable.variable
         |. P.spacesOnly

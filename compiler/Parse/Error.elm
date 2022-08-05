@@ -52,6 +52,7 @@ type Problem
     | ExpectingIf
     | ExpectingThen
     | ExpectingElse
+    | ExpectingEnd
 
 
 problemToString : Problem -> String
@@ -107,3 +108,6 @@ problemToString problem =
 
         ExpectingElse ->
             "Expecting else"
+
+        ExpectingEnd ->
+            "Expecting end"
