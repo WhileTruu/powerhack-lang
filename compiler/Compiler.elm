@@ -431,19 +431,9 @@ inferTypesTestSuite =
                 let
                     expected : String
                     expected =
-                        "[InfiniteTypeFromBind (TypeVar (Name \"u91\")) (TypeLambda (TypeVar (Name \"u91\")) (TypeVar (Name \"u91\")))]"
+                        "[InfiniteTypeFromBind (TypeVar (Name \"u5\")) (TypeLambda (TypeVar (Name \"u4\")) (TypeVar (Name \"u5\")))]"
                 in
-                """
-                main = \\arggg ->
-                    fib 10 0 1
-
-                fib = \\n a b ->
-                    if eq 0 n then
-                        a
-                    else
-                        fib (sub 1 n) b
-                """
-                    |> (String.Extra.unindent >> String.trim)
+                "foo = \\a -> foo"
                     |> parseAndInferType
                     |> Expect.equal (Err expected)
         , Test.todo "infinite type from occurs"
