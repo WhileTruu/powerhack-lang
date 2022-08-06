@@ -393,7 +393,7 @@ inferTypesTestSuite =
 
                     expected : String
                     expected =
-                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u22\")) (TypeVar (Name \"u23\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u31\")) (TypeVar (Name \"u32\")))]"
+                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u20\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u29\")))]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -431,7 +431,7 @@ inferTypesTestSuite =
                 let
                     expected : String
                     expected =
-                        "[InfiniteTypeFromBind (TypeVar (Name \"u5\")) (TypeLambda (TypeVar (Name \"u4\")) (TypeVar (Name \"u5\")))]"
+                        "[InfiniteTypeFromBind (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u4\")) (TypeVar (Name \"u2\")))]"
                 in
                 "foo = \\a -> foo"
                     |> parseAndInferType

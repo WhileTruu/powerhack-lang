@@ -40,7 +40,23 @@ run module_ =
             Ok (Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env)
 
         e :: es ->
-            Err (e :: es)
+            Err (List.map (applySubstInError subst) (e :: es))
+
+
+applySubstInError : Subst -> Error -> Error
+applySubstInError subst e =
+    case e of
+        UnificationFail t1 t2 ->
+            UnificationFail (applySubst subst t1) (applySubst subst t2)
+
+        InfiniteTypeFromOccurs t1 t2 ->
+            InfiniteTypeFromBind (applySubst subst t1) (applySubst subst t2)
+
+        InfiniteTypeFromBind t1 t2 ->
+            InfiniteTypeFromBind (applySubst subst t1) (applySubst subst t2)
+
+        UnboundVariable name ->
+            UnboundVariable name
 
 
 runForExpr : AST.LocatedExpr -> Result (List Error) Annotation
