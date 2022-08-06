@@ -520,17 +520,6 @@ lookupRTV rtv x =
 
 occurs : ( Name, Type ) -> State -> State
 occurs ( name, type_ ) state =
-    {- FIXME is this correct-ish? Create a test?
-       Iirc something like \a -> potato gave the annotation of `forall a. a`,
-       is that related?
-       Nope, not related and looks fine. :D
-
-       Turns out the one I was thinking about was a recursive value `x = x + 1`.
-       Those don't give errors and result in an `forall a. a`.
-       https://gist.github.com/evancz/07436448b7d6c947f21742dab46d1218
-
-       I suppose this has nothing to do with occurs at all.
-    -}
     if occursCheck name type_ then
         { state | errors = InfiniteTypeFromOccurs (TypeVar name) type_ :: state.errors }
 
