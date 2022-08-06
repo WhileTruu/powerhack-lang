@@ -3,6 +3,7 @@ module Error exposing (CanonicalizationError, Error(..), format)
 import Console
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
+import InferTypes
 import Parse.Error as E
 import Parser.Advanced as P
 
@@ -10,6 +11,7 @@ import Parser.Advanced as P
 type Error
     = ParseError (List (P.DeadEnd E.Context E.Problem)) FileContents FilePath
     | CanonicalizationError CanonicalizationError
+    | TypeError (List InferTypes.Error)
 
 
 format : Error -> String
@@ -20,6 +22,9 @@ format error =
 
         CanonicalizationError _ ->
             "FIXME: add like errors here"
+
+        TypeError typeErrors ->
+            String.join "\n" (List.map InferTypes.errorToString typeErrors)
 
 
 type alias CanonicalizationError =

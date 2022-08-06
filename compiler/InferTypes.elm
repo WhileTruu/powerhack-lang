@@ -1,19 +1,16 @@
-module InferTypes exposing (Annotation, TypeError, errorToString, run, testSuite)
+module InferTypes exposing
+    ( Annotation
+    , Error
+    , errorToString
+    , prettyScheme
+    , run
+    , runForExpr
+    )
 
 import AST.Canonical as AST
 import AssocList as Dict exposing (Dict)
-import Canonicalize
-import Data.FileContents as FileContents
-import Data.FilePath as FilePath
 import Data.Located as Located
 import Data.Name as Name exposing (Name)
-import Expect
-import Fuzz
-import Parse
-import Parse.Expression
-import Parser.Advanced as P
-import String.Extra
-import Test exposing (Test)
 
 
 
@@ -30,7 +27,7 @@ primitives =
         ]
 
 
-run : AST.Module -> Result (List TypeError) (Dict Name Annotation)
+run : AST.Module -> Result (List Error) (Dict Name Annotation)
 run module_ =
     let
         { env, errors, subst } =
@@ -46,7 +43,7 @@ run module_ =
             Err (e :: es)
 
 
-runForExpr : AST.LocatedExpr -> Result (List TypeError) Annotation
+runForExpr : AST.LocatedExpr -> Result (List Error) Annotation
 runForExpr expr =
     let
         ( expectedType, id ) =
@@ -434,7 +431,7 @@ applySubst subst type_ =
 type alias State =
     { env : Dict Name Type
     , subst : Subst
-    , errors : List TypeError
+    , errors : List Error
     }
 
 
@@ -443,7 +440,7 @@ solve rtv state constraint =
     case constraint of
         CEqual _ t1 t2 ->
             let
-                answer : Result TypeError Subst
+                answer : Result Error Subst
                 answer =
                     unifies (applySubst state.subst t1) (applySubst state.subst t2)
             in
@@ -467,7 +464,7 @@ solve rtv state constraint =
             case lookupRTV rtv name of
                 Ok actual ->
                     let
-                        answer : Result TypeError Subst
+                        answer : Result Error Subst
                         answer =
                             unifies (applySubst state.subst actual) (applySubst state.subst t)
                     in
@@ -508,7 +505,7 @@ solve rtv state constraint =
             { state | env = rtv }
 
 
-lookupRTV : RTV -> Name -> Result TypeError Type
+lookupRTV : RTV -> Name -> Result Error Type
 lookupRTV rtv x =
     case Dict.get x rtv of
         Nothing ->
@@ -527,7 +524,7 @@ occurs ( name, type_ ) state =
         state
 
 
-unifies : Type -> Type -> Result TypeError Subst
+unifies : Type -> Type -> Result Error Subst
 unifies t1 t2 =
     if t1 == t2 then
         Ok nullSubst
@@ -554,7 +551,7 @@ unifies t1 t2 =
 
 {-| Creates a fresh unification variable and binds it to the given type
 -}
-bind : Name -> Type -> Result TypeError Subst
+bind : Name -> Type -> Result Error Subst
 bind a t =
     if t == TypeVar a then
         Ok Dict.empty
@@ -575,14 +572,14 @@ occursCheck a t =
 -- ERROR
 
 
-type TypeError
+type Error
     = UnificationFail Type Type
     | InfiniteTypeFromOccurs Type Type
     | InfiniteTypeFromBind Type Type
     | UnboundVariable Name
 
 
-errorToString : TypeError -> String
+errorToString : Error -> String
 errorToString error =
     Debug.toString error
 
@@ -694,187 +691,3 @@ generateVarName i =
             else
                 String.fromInt suffix
            )
-
-
-
--- TESTS
-
-
-testSuite : Test
-testSuite =
-    let
-        parseExprAndInferTypes : String -> Result String String
-        parseExprAndInferTypes input =
-            P.run Parse.Expression.expression input
-                |> Result.mapError Debug.toString
-                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalizeExpr)
-                |> Result.andThen (Result.mapError Debug.toString << runForExpr)
-                |> Result.map prettyScheme
-
-        parseAndInferType : String -> Result String String
-        parseAndInferType input =
-            Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
-                |> Result.mapError Debug.toString
-                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalize)
-                |> Result.andThen (Result.mapError Debug.toString << run)
-                |> Result.map
-                    (Dict.foldl
-                        (\k v a ->
-                            a
-                                ++ Name.toString k
-                                ++ ": "
-                                ++ prettyScheme v
-                                ++ "\n"
-                        )
-                        ""
-                    )
-                |> Result.map (String.dropRight 1)
-
-        primitiveTypes : List String
-        primitiveTypes =
-            [ "eq: Int -> Int -> Bool"
-            , "sub: Int -> Int -> Int"
-            , "add: Int -> Int -> Int"
-            ]
-    in
-    Test.describe "Infer types"
-        [ Test.test "variable" <|
-            \_ ->
-                "\\a -> a"
-                    |> parseExprAndInferTypes
-                    |> Expect.equal (Ok "∀ a. a -> a")
-        , Test.test "variable 2" <|
-            \_ ->
-                """
-                \\a ->
-                    x = 1
-                    1
-                """
-                    |> (String.Extra.unindent >> String.trim)
-                    |> parseExprAndInferTypes
-                    |> Expect.equal (Ok "∀ a. a -> Int")
-        , Test.test "variable 3" <|
-            \_ ->
-                """
-                \\x ->
-                    fib = \\n a b ->
-                        if eq 0 n then
-                            a
-                        else
-                            fib (sub 1 n) b (add b a)
-                    
-                    fib 10 0 1
-                """
-                    |> (String.Extra.unindent >> String.trim)
-                    |> parseExprAndInferTypes
-                    |> Expect.equal (Ok "∀ a. a -> Int")
-        , Test.test "parse & infer type" <|
-            \_ ->
-                let
-                    expected : String
-                    expected =
-                        [ "fib: Int -> Int -> Int -> Int"
-                        , "main: ∀ a. a -> Int"
-                        ]
-                            |> (++) primitiveTypes
-                            |> String.join "\n"
-                in
-                """
-                main = \\arggg ->
-                    fib 10 0 1
-
-                fib = \\n a b ->
-                    if eq 0 n then
-                        a
-                    else
-                        fib (sub 1 n) b (add b a)
-                """
-                    |> (String.Extra.unindent >> String.trim)
-                    |> parseAndInferType
-                    |> Expect.equal (Ok expected)
-        , Test.test "parse & infer type basic" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        "foo = \\a -> 1"
-
-                    expected : String
-                    expected =
-                        [ "foo: ∀ a. a -> Int"
-                        ]
-                            |> (++) primitiveTypes
-                            |> String.join "\n"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Ok expected)
-        , Test.test "unbound variable" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "foo = \\a -> potato 1"
-                        , ""
-                        ]
-                            |> String.join "\n"
-
-                    expected : String
-                    expected =
-                        "[UnboundVariable (Name \"potato\"),UnboundVariable (Name \"potato\")]"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Err expected)
-        , Test.skip <|
-            Test.test "recursive value" <|
-                -- FIXME some sort of cycle detection thing?
-                -- https://gist.github.com/evancz/07436448b7d6c947f21742dab46d1218
-                \_ ->
-                    "x = add x 1"
-                        |> parseAndInferType
-                        |> Expect.err
-        , Test.test "unification fail" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "bar = \\x -> foo 1 1"
-                        , "foo = \\a -> add a 1"
-                        ]
-                            |> String.join "\n"
-
-                    expected : String
-                    expected =
-                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u22\")) (TypeVar (Name \"u23\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeVar (Name \"u31\")) (TypeVar (Name \"u32\")))]"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Err expected)
-        , let
-            fuzzer : Fuzz.Fuzzer String
-            fuzzer =
-                Fuzz.map2
-                    (\a b ->
-                        List.sortBy Tuple.first [ a, b ]
-                            |> List.map Tuple.second
-                            |> String.join "\n"
-                    )
-                    (Fuzz.map (\a -> ( a, "foo = \\a -> add a 1" )) Fuzz.int)
-                    (Fuzz.map (\a -> ( a, "bar = \\x -> foo 1" )) Fuzz.int)
-          in
-          Test.fuzz fuzzer "definition order does not affect type" <|
-            \input ->
-                let
-                    expected : List String
-                    expected =
-                        "foo: Int -> Int" :: "bar: ∀ a. a -> Int" :: primitiveTypes
-                in
-                parseAndInferType input
-                    |> Expect.all
-                        (List.map
-                            (\a ->
-                                Expect.true ("Expected types to contain " ++ a)
-                                    << Result.withDefault False
-                                    << Result.map (String.contains a)
-                            )
-                            expected
-                        )
-        ]
