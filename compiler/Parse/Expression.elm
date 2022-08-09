@@ -125,7 +125,7 @@ defsOrVarAndChompExprEndHelp args =
 
 varAndChompExprEnd : Located Name -> P.Parser E.Context E.Problem AST.LocatedExpr
 varAndChompExprEnd name =
-    P.succeed (AST.Var (Located.unwrap name))
+    P.succeed (AST.Var (Located.toValue name))
         |> P.located
         |> P.andThen (\expr -> chompExprEnd expr)
 

@@ -13,7 +13,7 @@ generate module_ =
 
 generateValue : InferTypes.Value -> String
 generateValue (InferTypes.Value varName expr) =
-    "var " ++ Name.toString (Located.unwrap varName) ++ " = " ++ generateExpr 0 expr
+    "var " ++ Name.toString (Located.toValue varName) ++ " = " ++ generateExpr 0 expr
 
 
 indent : Int -> String -> String
@@ -23,7 +23,7 @@ indent lvl string =
 
 generateExpr : Int -> InferTypes.LocatedExpr -> String
 generateExpr lvl expr =
-    case Located.unwrap expr of
+    case Located.toValue expr of
         ( InferTypes.Int int, _ ) ->
             String.fromInt int
 
@@ -50,7 +50,7 @@ generateExpr lvl expr =
                 (List.map
                     (\(InferTypes.Define name defExpr) ->
                         indent (lvl + 1)
-                            ("var " ++ Name.toString (Located.unwrap name) ++ " = " ++ generateExpr lvl defExpr)
+                            ("var " ++ Name.toString (Located.toValue name) ++ " = " ++ generateExpr lvl defExpr)
                     )
                     defs
                 )

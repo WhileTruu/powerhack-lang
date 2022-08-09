@@ -28,7 +28,7 @@ canonicalize source =
 
 canonicalizeExpr : Source.LocatedExpr -> Result Error.CanonicalizationError Canonical.LocatedExpr
 canonicalizeExpr sourceExpr =
-    case Located.unwrap sourceExpr of
+    case Located.toValue sourceExpr of
         Source.Int int ->
             Ok (Located.replaceWith (Canonical.Int int) sourceExpr)
 

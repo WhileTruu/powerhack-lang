@@ -290,7 +290,7 @@ constrain id rtv expr expected =
         region =
             Located.getRegion expr
     in
-    case Located.unwrap expr of
+    case Located.toValue expr of
         AST.Var var ->
             ( CLocal region var expected
             , id
@@ -563,7 +563,7 @@ solve rtv state constraint =
             let
                 headerWithoutRegions : Dict Name Type
                 headerWithoutRegions =
-                    Dict.foldl (\k v -> Dict.insert (Located.unwrap k) v) Dict.empty header
+                    Dict.foldl (\k v -> Dict.insert (Located.toValue k) v) Dict.empty header
 
                 state1 : State
                 state1 =
@@ -833,7 +833,7 @@ recurse fn locatedExpr =
 
 getExprType : LocatedExpr -> Type
 getExprType expr =
-    Located.unwrap expr |> Tuple.second
+    Located.toValue expr |> Tuple.second
 
 
 
