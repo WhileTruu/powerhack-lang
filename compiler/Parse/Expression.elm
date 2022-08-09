@@ -1,6 +1,7 @@
 module Parse.Expression exposing (expression)
 
 import AST.Source as AST
+import Data.Located as Located exposing (Located)
 import Data.Name exposing (Name)
 import Parse.Error as E
 import Parse.Parser as P
@@ -85,7 +86,9 @@ defsOrVarAndChompExprEndHelp :
 defsOrVarAndChompExprEndHelp args =
     P.oneOf
         [ P.succeed identity
-            |= Parse.Variable.variable
+            |= (Parse.Variable.variable
+                    |> P.located
+               )
             |. P.spacesOnly
             |> P.andThen
                 (\name ->
@@ -120,9 +123,9 @@ defsOrVarAndChompExprEndHelp args =
         ]
 
 
-varAndChompExprEnd : Name -> P.Parser E.Context E.Problem AST.LocatedExpr
+varAndChompExprEnd : Located Name -> P.Parser E.Context E.Problem AST.LocatedExpr
 varAndChompExprEnd name =
-    P.succeed (AST.Var name)
+    P.succeed (AST.Var (Located.unwrap name))
         |> P.located
         |> P.andThen (\expr -> chompExprEnd expr)
 

@@ -28,8 +28,8 @@ compile filePath fileContents =
         |> Result.andThen
             (\a ->
                 case InferTypes.run a of
-                    Ok _ ->
-                        Ok a
+                    Ok ( module_, _ ) ->
+                        Ok module_
 
                     Err errors ->
                         Err (Error.TypeError errors)
@@ -59,6 +59,11 @@ parseAndCompileTestSuite =
         parseAndGenerate input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.andThen Canonicalize.canonicalize
+                |> Result.andThen
+                    (InferTypes.run
+                        >> Result.map Tuple.first
+                        >> Result.mapError Error.TypeError
+                    )
                 |> Result.map Generate.generate
     in
     Test.describe "Parse and compile"
@@ -155,12 +160,18 @@ parseAndCompileTestSuite =
                         , "        x = 1"
                         , ""
                         , "        bar x"
+                        , ""
+                        , "bar = \\a -> a"
                         ]
                             |> String.join "\n"
 
                     output : String
                     output =
-                        [ "var varName = function (a) {"
+                        [ "var bar = function (a) {"
+                        , "    return a"
+                        , "}"
+                        , ""
+                        , "var varName = function (a) {"
                         , "    return (function () {"
                         , "        var x = 1"
                         , "        return bar(x)"
@@ -181,15 +192,21 @@ parseAndCompileTestSuite =
                         , "        y = 2"
                         , ""
                         , "        bar x"
+                        , ""
+                        , "bar = \\a -> a"
                         ]
                             |> String.join "\n"
 
                     output : String
                     output =
-                        [ "var varName = function (a) {"
+                        [ "var bar = function (a) {"
+                        , "    return a"
+                        , "}"
+                        , ""
+                        , "var varName = function (a) {"
                         , "    return (function () {"
-                        , "        var x = 1"
                         , "        var y = 2"
+                        , "        var x = 1"
                         , "        return bar(x)"
                         , "    })()"
                         , "}"
@@ -208,15 +225,21 @@ parseAndCompileTestSuite =
                         , "        y = 2"
                         , ""
                         , "        \\b -> bar x"
+                        , ""
+                        , "bar = \\a -> a"
                         ]
                             |> String.join "\n"
 
                     output : String
                     output =
-                        [ "var varName = function (a) {"
+                        [ "var bar = function (a) {"
+                        , "    return a"
+                        , "}"
+                        , ""
+                        , "var varName = function (a) {"
                         , "    return (function () {"
-                        , "        var x = 1"
                         , "        var y = 2"
+                        , "        var x = 1"
                         , "        return function (b) {"
                         , "            return bar(x)"
                         , "        }"
@@ -231,12 +254,12 @@ parseAndCompileTestSuite =
                 let
                     input : String
                     input =
-                        "varName = if a then 1 else 2"
+                        "varName = if eq 1 2 then 1 else 2"
 
                     output : String
                     output =
                         [ "var varName = (function () {"
-                        , "    if (a) {"
+                        , "    if (eq(1)(2)) {"
                         , "        return 1"
                         , "    } else {"
                         , "        return 2"
@@ -258,6 +281,7 @@ inferTypesTestSuite =
                 |> Result.mapError Debug.toString
                 |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalizeExpr)
                 |> Result.andThen (Result.mapError Debug.toString << InferTypes.runForExpr)
+                |> Result.map Tuple.first
                 |> Result.map InferTypes.prettyScheme
 
         parseAndInferType : String -> Result String String
@@ -266,6 +290,7 @@ inferTypesTestSuite =
                 |> Result.mapError Debug.toString
                 |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalize)
                 |> Result.andThen (Result.mapError Debug.toString << InferTypes.run)
+                |> Result.map Tuple.second
                 |> Result.map
                     (Dict.foldl
                         (\k v a ->
@@ -322,8 +347,8 @@ inferTypesTestSuite =
                 let
                     expected : String
                     expected =
-                        [ "fib: Int -> Int -> Int -> Int"
-                        , "main: ∀ a. a -> Int"
+                        [ "main: ∀ a. a -> Int"
+                        , "fib: Int -> Int -> Int -> Int"
                         ]
                             |> (++) primitiveTypes
                             |> String.join "\n"
@@ -369,7 +394,7 @@ inferTypesTestSuite =
 
                     expected : String
                     expected =
-                        "[UnboundVariable (Name \"potato\"),UnboundVariable (Name \"potato\")]"
+                        "[UnboundVariable (Name \"potato\")]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -393,7 +418,7 @@ inferTypesTestSuite =
 
                     expected : String
                     expected =
-                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u20\"))),UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u29\")))]"
+                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u2\")))]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -431,7 +456,7 @@ inferTypesTestSuite =
                 let
                     expected : String
                     expected =
-                        "[InfiniteTypeFromBind (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u4\")) (TypeVar (Name \"u2\")))]"
+                        "[InfiniteTypeFromBind (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u1\")) (TypeVar (Name \"u2\")))]"
                 in
                 "foo = \\a -> foo"
                     |> parseAndInferType

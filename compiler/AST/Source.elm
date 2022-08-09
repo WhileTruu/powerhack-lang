@@ -35,7 +35,7 @@ type Expr
 
 
 type Def
-    = Define Name LocatedExpr
+    = Define (Located Name) LocatedExpr
 
 
 

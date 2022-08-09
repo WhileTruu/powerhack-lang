@@ -1,7 +1,16 @@
 module InferTypes exposing
     ( Annotation
+    , Def(..)
     , Error
+    , Expr_(..)
+    , LocatedExpr
+    , Module
+    , Type
+    , TypeEnv(..)
+    , Value(..)
     , errorToString
+    , generalize
+    , getExprType
     , prettyScheme
     , run
     , runForExpr
@@ -9,7 +18,7 @@ module InferTypes exposing
 
 import AST.Canonical as AST
 import AssocList as Dict exposing (Dict)
-import Data.Located as Located
+import Data.Located as Located exposing (Located)
 import Data.Name as Name exposing (Name)
 
 
@@ -27,17 +36,35 @@ primitives =
         ]
 
 
-run : AST.Module -> Result (List Error) (Dict Name Annotation)
+run : AST.Module -> Result (List Error) ( Module, Dict Name Annotation )
 run module_ =
     let
+        ( con, _, moduleWithFreshTypes ) =
+            constrainModule (Id 0) module_
+
         { env, errors, subst } =
-            solve primitives
-                { env = Dict.empty, subst = nullSubst, errors = [] }
-                (Tuple.first (constrainModule (Id 0) module_))
+            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
+
+        typedValues : List Value
+        typedValues =
+            (\{ values } ->
+                List.map
+                    (\(Value name expr) ->
+                        Value name
+                            (recurse (Located.map (Tuple.mapSecond (applySubst subst)))
+                                expr
+                            )
+                    )
+                    values
+            )
+                moduleWithFreshTypes
     in
     case errors of
         [] ->
-            Ok (Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env)
+            Ok
+                ( { values = typedValues }
+                , Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env
+                )
 
         e :: es ->
             Err (List.map (applySubstInError subst) (e :: es))
@@ -59,20 +86,34 @@ applySubstInError subst e =
             UnboundVariable name
 
 
-runForExpr : AST.LocatedExpr -> Result (List Error) Annotation
+runForExpr : AST.LocatedExpr -> Result (List Error) ( Annotation, LocatedExpr )
 runForExpr expr =
     let
         ( expectedType, id ) =
             fresh (Id 0)
 
+        ( con, _, typedExpr ) =
+            constrain id primitives expr expectedType
+
         { env, errors, subst } =
-            solve primitives
-                { env = Dict.empty, subst = nullSubst, errors = [] }
-                (Tuple.first (constrain id primitives expr expectedType))
+            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
+
+        properlyTypedExpr : LocatedExpr
+        properlyTypedExpr =
+            recurse
+                (Located.map
+                    (\( expr_, type_ ) ->
+                        ( expr_, applySubst subst type_ )
+                    )
+                )
+                typedExpr
     in
     case errors of
         [] ->
-            Ok (generalize (TypeEnv Dict.empty) (applySubst subst expectedType))
+            Ok
+                ( generalize (TypeEnv Dict.empty) (applySubst subst expectedType)
+                , properlyTypedExpr
+                )
 
         es ->
             Err es
@@ -88,7 +129,7 @@ type Constraint
     | CLocal Located.Region Name Type
     | CForeign Located.Region Name AST.Annotation Type
     | CLet
-        { header : Dict Name Type
+        { header : Dict (Located Name) Type
         , headerCon : Constraint
         , bodyCon : Constraint
         }
@@ -184,6 +225,7 @@ ftv ty =
 
         TypeApplied name applied ->
             -- TODO: Find out what should go here, not sure this is correct
+            -- there probably are ftvs in the applied types
             Dict.empty
 
 
@@ -191,31 +233,28 @@ ftv ty =
 -- CONSTRAIN
 
 
-constrainModule : Id -> AST.Module -> ( Constraint, Id )
+constrainModule : Id -> AST.Module -> ( Constraint, Id, Module )
 constrainModule id { values } =
     constrainDecls id
-        (List.map
-            (\(AST.Value name expr) ->
-                AST.Define (Located.unwrap name) expr
-            )
-            values
-        )
+        (List.map (\(AST.Value name expr) -> AST.Define name expr) values)
         CSaveTheEnvironment
+        |> (\( con, id1, defs ) ->
+                ( con
+                , id1
+                , { values = List.map (\(Define name expr) -> Value name expr) defs
+                  }
+                )
+           )
 
 
-constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id )
+constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id, List Def )
 constrainDecls id decls finalConstraint =
     case decls of
         def :: defs ->
-            let
-                ( constraint, id1 ) =
-                    -- FIXME? as there's only one kind of Def I think this could just be CSaveTheEnvironment directly
-                    constrainDecls id defs finalConstraint
-            in
-            constrainRecursiveDefs id1 Dict.empty (def :: decls) constraint
+            constrainRecursiveDefs id Dict.empty (def :: defs) finalConstraint
 
         [] ->
-            ( finalConstraint, id )
+            ( finalConstraint, id, [] )
 
 
 {-|
@@ -244,7 +283,7 @@ type alias RTV =
     Dict Name Type
 
 
-constrain : Id -> RTV -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrain : Id -> RTV -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrain id rtv expr expected =
     let
         region : Located.Region
@@ -253,7 +292,10 @@ constrain id rtv expr expected =
     in
     case Located.unwrap expr of
         AST.Var var ->
-            ( CLocal region var expected, id )
+            ( CLocal region var expected
+            , id
+            , Located.located region ( Var var, expected )
+            )
 
         AST.Lambda arg body ->
             constrainLambda id rtv region arg body expected
@@ -261,24 +303,37 @@ constrain id rtv expr expected =
         AST.Call func arg ->
             constrainCall id rtv region func arg expected
 
-        AST.Int _ ->
-            ( CEqual region typeInt expected, id )
+        AST.Int value ->
+            ( CEqual region typeInt expected
+            , id
+            , Located.located region ( Int value, typeInt )
+            )
 
         AST.Defs defs body ->
             let
-                ( bodyCon, id1 ) =
+                ( bodyCon, id1, bodyExpr ) =
                     constrain id rtv body expected
+
+                ( defsCon, id2, typedDefs ) =
+                    constrainRecursiveDefs id1 rtv defs bodyCon
             in
-            constrainRecursiveDefs id1 rtv defs bodyCon
+            ( defsCon
+            , id2
+            , Located.located region ( Defs typedDefs bodyExpr, expected )
+            )
 
         AST.If cond branch final ->
             constrainIf id rtv region cond branch final expected
 
         AST.Constructor name annotation ->
-            ( CForeign region name annotation expected, id )
+            ( CForeign region name annotation expected
+            , id
+              -- FIXME annotation not taken into account
+            , Located.located region ( Constructor name, expected )
+            )
 
 
-constrainLambda : Id -> RTV -> Located.Region -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainLambda : Id -> RTV -> Located.Region -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainLambda id rtv region arg body expected =
     let
         ( argType, id1 ) =
@@ -287,22 +342,23 @@ constrainLambda id rtv region arg body expected =
         ( resultType, id2 ) =
             fresh id1
 
-        ( bodyCon, id3 ) =
+        ( bodyCon, id3, bodyExpr ) =
             constrain id2 rtv body resultType
     in
     ( CAnd
         [ CLet
-            { header = Dict.singleton arg argType
+            { header = Dict.singleton (Located.located region arg) argType
             , headerCon = CTrue
             , bodyCon = bodyCon
             }
         , CEqual region (TypeLambda argType resultType) expected
         ]
     , id3
+    , Located.located region ( Lambda arg bodyExpr, expected )
     )
 
 
-constrainCall : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainCall : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainCall id rtv region func arg expected =
     let
         ( funcType, id1 ) =
@@ -314,10 +370,10 @@ constrainCall id rtv region func arg expected =
         ( resultType, id3 ) =
             fresh id2
 
-        ( funcCon, id4 ) =
+        ( funcCon, id4, funcExpr ) =
             constrain id3 rtv func funcType
 
-        ( argCon, id5 ) =
+        ( argCon, id5, argExpr ) =
             constrain id4 rtv arg argType
 
         funcRegion : Located.Region
@@ -331,22 +387,23 @@ constrainCall id rtv region func arg expected =
         , CEqual region resultType expected
         ]
     , id5
+    , Located.located region ( Call funcExpr argExpr, expected )
     )
 
 
-constrainIf : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id )
+constrainIf : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainIf id rtv region cond branch final expected =
     let
-        ( condCon, id1 ) =
+        ( condCon, id1, condExpr ) =
             constrain id rtv cond typeBool
 
         ( branchType, id2 ) =
             fresh id1
 
-        ( branchCon, id3 ) =
+        ( branchCon, id3, branchExpr ) =
             constrain id2 rtv branch branchType
 
-        ( finalCon, id4 ) =
+        ( finalCon, id4, finalExpr ) =
             constrain id3 rtv final branchType
     in
     ( CAnd
@@ -355,12 +412,13 @@ constrainIf id rtv region cond branch final expected =
         , CEqual region branchType expected
         ]
     , id4
+    , Located.located region ( If condExpr branchExpr finalExpr, expected )
     )
 
 
 type alias Info =
     { cons : List Constraint
-    , headers : Dict Name Type
+    , headers : Dict (Located Name) Type
     }
 
 
@@ -369,13 +427,13 @@ emptyInfo =
     { cons = [], headers = Dict.empty }
 
 
-constrainRecursiveDefs : Id -> RTV -> List AST.Def -> Constraint -> ( Constraint, Id )
+constrainRecursiveDefs : Id -> RTV -> List AST.Def -> Constraint -> ( Constraint, Id, List Def )
 constrainRecursiveDefs id rtv defs bodyCon =
-    recDefsHelp id rtv defs bodyCon emptyInfo
+    recDefsHelp id rtv defs bodyCon emptyInfo []
 
 
-recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> ( Constraint, Id )
-recDefsHelp id rtv defs bodyCon flexInfo =
+recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> List Def -> ( Constraint, Id, List Def )
+recDefsHelp id rtv defs bodyCon flexInfo typedDefs =
     case defs of
         [] ->
             ( CLet
@@ -389,6 +447,7 @@ recDefsHelp id rtv defs bodyCon flexInfo =
                 , bodyCon = bodyCon
                 }
             , id
+            , typedDefs
             )
 
         def :: otherDefs ->
@@ -399,13 +458,15 @@ recDefsHelp id rtv defs bodyCon flexInfo =
                 ( resultType, id1 ) =
                     fresh id
 
-                ( exprCon, id2 ) =
+                ( exprCon, id2, typedExpr ) =
                     constrain id1 rtv expr resultType
             in
-            recDefsHelp id2 rtv otherDefs bodyCon <|
+            (recDefsHelp id2 rtv otherDefs bodyCon <|
                 { cons = exprCon :: flexInfo.cons
                 , headers = Dict.insert name resultType flexInfo.headers
                 }
+            )
+                (Define name typedExpr :: typedDefs)
 
 
 
@@ -500,19 +561,23 @@ solve rtv state constraint =
         CLet { header, headerCon, bodyCon } ->
             -- Should RTV be env here, is it really still RTVs
             let
+                headerWithoutRegions : Dict Name Type
+                headerWithoutRegions =
+                    Dict.foldl (\k v -> Dict.insert (Located.unwrap k) v) Dict.empty header
+
                 state1 : State
                 state1 =
                     solve rtv state headerCon
 
                 newEnv : Dict Name Type
                 newEnv =
-                    Dict.union rtv header
+                    Dict.union rtv headerWithoutRegions
 
                 state2 : State
                 state2 =
                     solve newEnv state1 bodyCon
             in
-            List.foldl occurs state2 (Dict.toList header)
+            List.foldl occurs state2 (Dict.toList headerWithoutRegions)
 
         CTrue ->
             state
@@ -707,3 +772,86 @@ generateVarName i =
             else
                 String.fromInt suffix
            )
+
+
+
+-- TYPED AST
+
+
+type alias LocatedExpr =
+    Located Expr
+
+
+type alias Expr =
+    ( Expr_, Type )
+
+
+type Expr_
+    = Int Int
+    | Constructor Name
+    | Call LocatedExpr LocatedExpr
+    | Var Name
+    | Lambda Name LocatedExpr
+    | Defs (List Def) LocatedExpr
+    | If LocatedExpr LocatedExpr LocatedExpr
+
+
+recurse : (LocatedExpr -> LocatedExpr) -> LocatedExpr -> LocatedExpr
+recurse fn locatedExpr =
+    Located.map
+        (\( expr, type_ ) ->
+            case expr of
+                Int _ ->
+                    ( expr, type_ )
+
+                Constructor _ ->
+                    ( expr, type_ )
+
+                Call func arg ->
+                    ( Call (recurse fn func) (recurse fn arg), type_ )
+
+                Var _ ->
+                    ( expr, type_ )
+
+                Lambda name body ->
+                    ( Lambda name (recurse fn body), type_ )
+
+                Defs defs body ->
+                    ( Defs
+                        (List.map (\(Define name body_) -> Define name (recurse fn body_)) defs)
+                        (recurse fn body)
+                    , type_
+                    )
+
+                If cond branch final ->
+                    ( If (recurse fn cond) (recurse fn branch) (recurse fn final)
+                    , type_
+                    )
+        )
+        (fn locatedExpr)
+
+
+getExprType : LocatedExpr -> Type
+getExprType expr =
+    Located.unwrap expr |> Tuple.second
+
+
+
+-- DEFINITIONS
+
+
+type Def
+    = Define (Located Name) LocatedExpr
+
+
+
+-- MODULE
+
+
+type alias Module =
+    { values : List Value
+    }
+
+
+type Value
+    = Value (Located Name) LocatedExpr
