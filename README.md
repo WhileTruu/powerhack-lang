@@ -2,6 +2,11 @@
 
 With great responsibility comes great power.
 
+## What is this?
+
+At this point it's a compiler learning playground kind of thing for a language 
+I've called Powerhack.
+
 ## Some commands that do things
 
 make build
