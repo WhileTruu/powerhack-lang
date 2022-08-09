@@ -9,7 +9,6 @@ module Parse.Parser exposing
     , onlyAtBeginningOfLine
     , rememberIndentation
     , spacesOnly
-    , zeroOrMoreWith
     )
 
 import Data.Located as Located exposing (Located)
@@ -99,39 +98,6 @@ ignoreablesAndCheckIndent check error =
     P.succeed ()
         |. ignoreables
         |. checkIndent check error
-
-
-zeroOrMoreWith :
-    P.Parser context problem ()
-    -> P.Parser context problem a
-    -> P.Parser context problem (List a)
-zeroOrMoreWith spaces p =
-    P.loop [] (zeroOrMoreHelp spaces p)
-
-
-zeroOrMoreHelp :
-    P.Parser context problem ()
-    -> P.Parser context problem a
-    -> List a
-    -> P.Parser context problem (P.Step (List a) (List a))
-zeroOrMoreHelp spaces p vs =
-    P.oneOf
-        [ p
-            |> P.andThen
-                (\v ->
-                    let
-                        result =
-                            P.Loop (v :: vs)
-                    in
-                    P.oneOf
-                        [ P.succeed result
-                            |. spaces
-                        , P.succeed result
-                        ]
-                )
-        , P.succeed ()
-            |> P.map (always (P.Done (List.reverse vs)))
-        ]
 
 
 checkIndent : (Int -> Int -> Bool) -> problem -> P.Parser context problem ()

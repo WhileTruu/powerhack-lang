@@ -4,8 +4,7 @@ import Data.FilePath as FilePath exposing (FilePath)
 
 
 type Context
-    = InDeclaration
-    | InLambda
+    = InLambda
     | InDef
     | InDefs
     | InIf
@@ -15,9 +14,6 @@ type Context
 contextToString : Context -> String
 contextToString context =
     case context of
-        InDeclaration ->
-            "DECLARATION"
-
         InLambda ->
             "LAMBDA"
 
@@ -42,7 +38,6 @@ type Problem
     | ExpectingNumber
     | ExpectingOpenParen
     | ExpectingCloseParen
-    | ExpectingComma
     | ExpectingEquals
     | ExpectingBackslash
     | FuncIdentBody
@@ -78,9 +73,6 @@ problemToString problem =
 
         ExpectingCloseParen ->
             "Expecting close paren"
-
-        ExpectingComma ->
-            "Expecting comma"
 
         ExpectingEquals ->
             "Expecting equals"

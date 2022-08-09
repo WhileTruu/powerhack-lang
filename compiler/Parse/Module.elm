@@ -1,4 +1,4 @@
-module Parse.Module exposing (..)
+module Parse.Module exposing (module_)
 
 import AST.Source as Source
 import Data.FilePath exposing (FilePath)

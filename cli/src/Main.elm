@@ -1,4 +1,4 @@
-module Main exposing (..)
+module Main exposing (program)
 
 import Compiler
 import Data.FileContents as FileContents

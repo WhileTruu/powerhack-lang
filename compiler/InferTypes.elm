@@ -2,6 +2,7 @@ module InferTypes exposing
     ( Annotation
     , Def(..)
     , Error
+    , Expr
     , Expr_(..)
     , LocatedExpr
     , Module
@@ -9,8 +10,6 @@ module InferTypes exposing
     , TypeEnv(..)
     , Value(..)
     , errorToString
-    , generalize
-    , getExprType
     , prettyScheme
     , run
     , runForExpr
@@ -44,23 +43,24 @@ run module_ =
 
         { env, errors, subst } =
             solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
-
-        typedValues : List Value
-        typedValues =
-            (\{ values } ->
-                List.map
-                    (\(Value name expr) ->
-                        Value name
-                            (recurse (Located.map (Tuple.mapSecond (applySubst subst)))
-                                expr
-                            )
-                    )
-                    values
-            )
-                moduleWithFreshTypes
     in
     case errors of
         [] ->
+            let
+                typedValues : List Value
+                typedValues =
+                    (\{ values } ->
+                        List.map
+                            (\(Value name expr) ->
+                                Value name
+                                    (recurse (Located.map (Tuple.mapSecond (applySubst subst)))
+                                        expr
+                                    )
+                            )
+                            values
+                    )
+                        moduleWithFreshTypes
+            in
             Ok
                 ( { values = typedValues }
                 , Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env
@@ -95,21 +95,22 @@ runForExpr expr =
         ( con, _, typedExpr ) =
             constrain id primitives expr expectedType
 
-        { env, errors, subst } =
+        { errors, subst } =
             solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
-
-        properlyTypedExpr : LocatedExpr
-        properlyTypedExpr =
-            recurse
-                (Located.map
-                    (\( expr_, type_ ) ->
-                        ( expr_, applySubst subst type_ )
-                    )
-                )
-                typedExpr
     in
     case errors of
         [] ->
+            let
+                properlyTypedExpr : LocatedExpr
+                properlyTypedExpr =
+                    recurse
+                        (Located.map
+                            (\( expr_, type_ ) ->
+                                ( expr_, applySubst subst type_ )
+                            )
+                        )
+                        typedExpr
+            in
             Ok
                 ( generalize (TypeEnv Dict.empty) (applySubst subst expectedType)
                 , properlyTypedExpr
@@ -223,7 +224,8 @@ ftv ty =
         TypeLambda t1 t2 ->
             Dict.union (ftv t1) (ftv t2)
 
-        TypeApplied name applied ->
+        TypeApplied _ _ ->
+            -- TypeApplied name applied ->
             -- TODO: Find out what should go here, not sure this is correct
             -- there probably are ftvs in the applied types
             Dict.empty
@@ -556,6 +558,19 @@ solve rtv state constraint =
                     { state | errors = err :: state.errors }
 
         CForeign _ name (AST.Forall freeVars srcType) expectation ->
+            let
+                _ =
+                    Debug.log "CForeign name" name
+
+                _ =
+                    Debug.log "CForeign freeVars" freeVars
+
+                _ =
+                    Debug.log "CForeign srcType" srcType
+
+                _ =
+                    Debug.log "CForeign expectation" expectation
+            in
             Debug.todo ""
 
         CLet { header, headerCon, bodyCon } ->
@@ -626,7 +641,7 @@ unifies t1 t2 =
                                 |> Result.map (Dict.union su1)
                         )
 
-            ( _, _ ) ->
+            _ ->
                 Err (UnificationFail t1 t2)
 
 
@@ -829,11 +844,6 @@ recurse fn locatedExpr =
                     )
         )
         (fn locatedExpr)
-
-
-getExprType : LocatedExpr -> Type
-getExprType expr =
-    Located.toValue expr |> Tuple.second
 
 
 

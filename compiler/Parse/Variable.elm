@@ -1,4 +1,4 @@
-module Parse.Variable exposing (..)
+module Parse.Variable exposing (variable)
 
 import Data.Name as Name exposing (Name)
 import Parse.Error as E

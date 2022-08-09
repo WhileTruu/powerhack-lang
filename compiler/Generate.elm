@@ -1,4 +1,4 @@
-module Generate exposing (..)
+module Generate exposing (generate)
 
 import Data.Located as Located
 import Data.Name as Name

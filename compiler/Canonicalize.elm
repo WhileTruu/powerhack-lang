@@ -1,4 +1,4 @@
-module Canonicalize exposing (..)
+module Canonicalize exposing (canonicalize, canonicalizeExpr)
 
 import AST.Canonical as Canonical
 import AST.Source as Source

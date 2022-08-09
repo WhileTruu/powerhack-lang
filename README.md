@@ -14,3 +14,5 @@ make build
 ./build/powerhack-lang examples/fib.powerhack --output out.js
 
 make test
+
+npx elm-review --elmjson cli/elm.json 

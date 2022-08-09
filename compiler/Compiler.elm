@@ -1,4 +1,4 @@
-module Compiler exposing (..)
+module Compiler exposing (compile, inferTypesTestSuite, parseAndCompileTestSuite)
 
 import AssocList as Dict
 import Canonicalize

@@ -1,4 +1,11 @@
-module AST.Canonical exposing (..)
+module AST.Canonical exposing
+    ( Annotation(..)
+    , Def(..)
+    , Expr(..)
+    , LocatedExpr
+    , Module
+    , Value(..)
+    )
 
 import Data.Located exposing (Located)
 import Data.Name exposing (Name)

@@ -3,8 +3,8 @@ module Parse exposing (parse, testSuite)
 import AST.Source as Source
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
-import Data.Located as Located exposing (Located)
-import Data.Name as Name exposing (Name)
+import Data.Located as Located
+import Data.Name as Name
 import Error exposing (Error)
 import Expect
 import Parse.Module

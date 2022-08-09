@@ -59,9 +59,6 @@ deadEndToReport fileContents deadEnd =
 
             first :: _ ->
                 case first.context of
-                    E.InDeclaration ->
-                        "I got stuck parsing this declaration here:"
-
                     E.InLambda ->
                         "I got stuck parsing this lambda here:"
 
@@ -102,9 +99,6 @@ deadEndToReport fileContents deadEnd =
                 "I was expecting to see a closing parenthesis next. Try putting a "
                     ++ Console.green ")"
                     ++ " next and see if that helps?"
-
-            E.ExpectingComma ->
-                "I was expecting to see a comma (" ++ Console.green "," ++ ") next."
 
             E.ExpectingEquals ->
                 "I was expecting to see the equals sign (" ++ Console.green "=" ++ ") next."
