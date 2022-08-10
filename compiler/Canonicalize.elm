@@ -32,9 +32,6 @@ canonicalizeExpr sourceExpr =
         Source.Int int ->
             Ok (Located.replaceWith (Canonical.Int int) sourceExpr)
 
-        Source.Constructor name ->
-            Ok (Located.replaceWith (Canonical.Constructor name (Debug.todo "")) sourceExpr)
-
         Source.Call fn arguments ->
             Result.andThen
                 (\canonicalFn ->

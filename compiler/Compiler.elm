@@ -394,7 +394,7 @@ inferTypesTestSuite =
 
                     expected : String
                     expected =
-                        "[UnboundVariable (Name \"potato\")]"
+                        "[UnboundVariable (Located { end = { col = 20, row = 1 }, start = { col = 20, row = 1 } } (Name \"potato\"))]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -418,7 +418,7 @@ inferTypesTestSuite =
 
                     expected : String
                     expected =
-                        "[UnificationFail (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u2\")))]"
+                        "[UnificationFail { end = { col = 1, row = 2 }, start = { col = 1, row = 2 } } (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u2\")))]"
                 in
                 parseAndInferType input
                     |> Expect.equal (Err expected)
@@ -456,7 +456,7 @@ inferTypesTestSuite =
                 let
                     expected : String
                     expected =
-                        "[InfiniteTypeFromBind (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u1\")) (TypeVar (Name \"u2\")))]"
+                        "[InfiniteTypeFromBind { end = { col = 16, row = 1 }, start = { col = 7, row = 1 } } (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u1\")) (TypeVar (Name \"u2\")))]"
                 in
                 "foo = \\a -> foo"
                     |> parseAndInferType

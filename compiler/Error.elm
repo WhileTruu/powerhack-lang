@@ -20,8 +20,8 @@ format error =
         ParseError deadEnds fileContents filePath ->
             formatParseError filePath fileContents deadEnds
 
-        CanonicalizationError _ ->
-            "FIXME: add like errors here"
+        CanonicalizationError err ->
+            Debug.toString err
 
         TypeError typeErrors ->
             String.join "\n" (List.map InferTypes.errorToString typeErrors)

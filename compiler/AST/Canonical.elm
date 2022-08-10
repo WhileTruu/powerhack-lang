@@ -1,6 +1,5 @@
 module AST.Canonical exposing
-    ( Annotation(..)
-    , Def(..)
+    ( Def(..)
     , Expr(..)
     , LocatedExpr
     , Module
@@ -17,26 +16,11 @@ type alias LocatedExpr =
 
 type Expr
     = Int Int
-    | Constructor Name Annotation
     | Call LocatedExpr LocatedExpr
     | Var Name
     | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr
     | If LocatedExpr LocatedExpr LocatedExpr
-
-
-type Annotation
-    = Forall FreeVars Type
-
-
-type FreeVars
-    = Dict Name ()
-
-
-type Type
-    = TLambda Type Type
-    | TType Name (List Type)
-    | TVar Name
 
 
 

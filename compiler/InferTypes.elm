@@ -73,14 +73,14 @@ run module_ =
 applySubstInError : Subst -> Error -> Error
 applySubstInError subst e =
     case e of
-        UnificationFail t1 t2 ->
-            UnificationFail (applySubst subst t1) (applySubst subst t2)
+        UnificationFail region t1 t2 ->
+            UnificationFail region (applySubst subst t1) (applySubst subst t2)
 
-        InfiniteTypeFromOccurs t1 t2 ->
-            InfiniteTypeFromBind (applySubst subst t1) (applySubst subst t2)
+        InfiniteTypeFromOccurs region t1 t2 ->
+            InfiniteTypeFromOccurs region (applySubst subst t1) (applySubst subst t2)
 
-        InfiniteTypeFromBind t1 t2 ->
-            InfiniteTypeFromBind (applySubst subst t1) (applySubst subst t2)
+        InfiniteTypeFromBind region t1 t2 ->
+            InfiniteTypeFromBind region (applySubst subst t1) (applySubst subst t2)
 
         UnboundVariable name ->
             UnboundVariable name
@@ -128,7 +128,6 @@ type Constraint
     = CEqual Located.Region Type Type
     | CAnd (List Constraint)
     | CLocal Located.Region Name Type
-    | CForeign Located.Region Name AST.Annotation Type
     | CLet
         { header : Dict (Located Name) Type
         , headerCon : Constraint
@@ -327,13 +326,6 @@ constrain id rtv expr expected =
         AST.If cond branch final ->
             constrainIf id rtv region cond branch final expected
 
-        AST.Constructor name annotation ->
-            ( CForeign region name annotation expected
-            , id
-              -- FIXME annotation not taken into account
-            , Located.located region ( Constructor name, expected )
-            )
-
 
 constrainLambda : Id -> RTV -> Located.Region -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainLambda id rtv region arg body expected =
@@ -517,11 +509,11 @@ type alias State =
 solve : RTV -> State -> Constraint -> State
 solve rtv state constraint =
     case constraint of
-        CEqual _ t1 t2 ->
+        CEqual region t1 t2 ->
             let
                 answer : Result Error Subst
                 answer =
-                    unifies (applySubst state.subst t1) (applySubst state.subst t2)
+                    unifies region (applySubst state.subst t1) (applySubst state.subst t2)
             in
             case answer of
                 Ok subst ->
@@ -539,13 +531,13 @@ solve rtv state constraint =
                 state
                 constraints
 
-        CLocal _ name t ->
-            case lookupRTV rtv name of
+        CLocal region name t ->
+            case lookupRTV rtv (Located.located region name) of
                 Ok actual ->
                     let
                         answer : Result Error Subst
                         answer =
-                            unifies (applySubst state.subst actual) (applySubst state.subst t)
+                            unifies region (applySubst state.subst actual) (applySubst state.subst t)
                     in
                     case answer of
                         Ok subst ->
@@ -556,22 +548,6 @@ solve rtv state constraint =
 
                 Err err ->
                     { state | errors = err :: state.errors }
-
-        CForeign _ name (AST.Forall freeVars srcType) expectation ->
-            let
-                _ =
-                    Debug.log "CForeign name" name
-
-                _ =
-                    Debug.log "CForeign freeVars" freeVars
-
-                _ =
-                    Debug.log "CForeign srcType" srcType
-
-                _ =
-                    Debug.log "CForeign expectation" expectation
-            in
-            Debug.todo ""
 
         CLet { header, headerCon, bodyCon } ->
             -- Should RTV be env here, is it really still RTVs
@@ -592,7 +568,7 @@ solve rtv state constraint =
                 state2 =
                     solve newEnv state1 bodyCon
             in
-            List.foldl occurs state2 (Dict.toList headerWithoutRegions)
+            List.foldl occurs state2 (Dict.toList header)
 
         CTrue ->
             state
@@ -601,59 +577,63 @@ solve rtv state constraint =
             { state | env = rtv }
 
 
-lookupRTV : RTV -> Name -> Result Error Type
-lookupRTV rtv x =
-    case Dict.get x rtv of
+lookupRTV : RTV -> Located Name -> Result Error Type
+lookupRTV rtv name =
+    case Dict.get (Located.toValue name) rtv of
         Nothing ->
-            Err (UnboundVariable x)
+            Err (UnboundVariable name)
 
         Just type_ ->
             Ok type_
 
 
-occurs : ( Name, Type ) -> State -> State
+occurs : ( Located Name, Type ) -> State -> State
 occurs ( name, type_ ) state =
-    if occursCheck name type_ then
-        { state | errors = InfiniteTypeFromOccurs (TypeVar name) type_ :: state.errors }
+    if occursCheck (Located.toValue name) type_ then
+        { state | errors = InfiniteTypeFromOccurs (Located.getRegion name) (TypeVar (Located.toValue name)) type_ :: state.errors }
 
     else
         state
 
 
-unifies : Type -> Type -> Result Error Subst
-unifies t1 t2 =
+unifies : Located.Region -> Type -> Type -> Result Error Subst
+unifies region t1 t2 =
+    -- FIXME find out it applying substs is necessary here,
+    -- FIXME can I get rid of region?
     if t1 == t2 then
         Ok nullSubst
 
     else
         case ( t1, t2 ) of
             ( TypeVar a, t ) ->
-                bind a t
+                bind region a t
 
             ( t, TypeVar a ) ->
-                bind a t
+                bind region a t
 
             ( TypeLambda l r, TypeLambda l_ r_ ) ->
-                unifies l l_
+                unifies region l l_
                     |> Result.andThen
                         (\su1 ->
-                            unifies (applySubst su1 r) (applySubst su1 r_)
+                            unifies region (applySubst su1 r) (applySubst su1 r_)
                                 |> Result.map (Dict.union su1)
                         )
 
             _ ->
-                Err (UnificationFail t1 t2)
+                Err (UnificationFail region t1 t2)
 
 
 {-| Creates a fresh unification variable and binds it to the given type
 -}
-bind : Name -> Type -> Result Error Subst
-bind a t =
+bind : Located.Region -> Name -> Type -> Result Error Subst
+bind region a t =
+    -- FIXME find out it applying substs is necessary here,
+    -- FIXME can I get rid of region?
     if t == TypeVar a then
         Ok Dict.empty
 
     else if occursCheck a t then
-        Result.Err (InfiniteTypeFromBind (TypeVar a) t)
+        Result.Err (InfiniteTypeFromBind region (TypeVar a) t)
 
     else
         Ok (Dict.singleton a t)
@@ -669,10 +649,10 @@ occursCheck a t =
 
 
 type Error
-    = UnificationFail Type Type
-    | InfiniteTypeFromOccurs Type Type
-    | InfiniteTypeFromBind Type Type
-    | UnboundVariable Name
+    = UnificationFail Located.Region Type Type
+    | InfiniteTypeFromOccurs Located.Region Type Type
+    | InfiniteTypeFromBind Located.Region Type Type
+    | UnboundVariable (Located Name)
 
 
 errorToString : Error -> String
@@ -803,7 +783,6 @@ type alias Expr =
 
 type Expr_
     = Int Int
-    | Constructor Name
     | Call LocatedExpr LocatedExpr
     | Var Name
     | Lambda Name LocatedExpr
@@ -817,9 +796,6 @@ recurse fn locatedExpr =
         (\( expr, type_ ) ->
             case expr of
                 Int _ ->
-                    ( expr, type_ )
-
-                Constructor _ ->
                     ( expr, type_ )
 
                 Call func arg ->

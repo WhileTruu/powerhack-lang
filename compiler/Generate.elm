@@ -27,10 +27,6 @@ generateExpr lvl expr =
         ( InferTypes.Int int, _ ) ->
             String.fromInt int
 
-        ( InferTypes.Constructor name, _ ) ->
-            -- FIXME no types atm
-            Name.toString name
-
         ( InferTypes.Call fn argument, _ ) ->
             generateExpr lvl fn ++ "(" ++ generateExpr lvl argument ++ ")"
 
