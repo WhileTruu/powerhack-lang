@@ -511,16 +511,26 @@ solve rtv state constraint =
     case constraint of
         CEqual region t1 t2 ->
             let
-                answer : Result Error Subst
+                answer : Result ( UnifiesError, Subst ) Subst
                 answer =
-                    unifies region (applySubst state.subst t1) (applySubst state.subst t2)
+                    unifies (applySubst state.subst t1) (applySubst state.subst t2)
             in
             case answer of
                 Ok subst ->
                     { state | subst = subst }
 
-                Err err ->
-                    { state | errors = err :: state.errors }
+                Err ( err, subst ) ->
+                    let
+                        typeErr : Error
+                        typeErr =
+                            case err of
+                                UnifiesErrorInfiniteTypeFromBind ty1 ty2 ->
+                                    InfiniteTypeFromBind region ty1 ty2
+
+                                UnifiesErrorUnificationFail ty1 ty2 ->
+                                    UnificationFail region ty1 ty2
+                    in
+                    { state | errors = typeErr :: state.errors, subst = subst }
 
         CAnd constraints ->
             List.foldl
@@ -535,16 +545,26 @@ solve rtv state constraint =
             case lookupRTV rtv (Located.located region name) of
                 Ok actual ->
                     let
-                        answer : Result Error Subst
+                        answer : Result ( UnifiesError, Subst ) Subst
                         answer =
-                            unifies region (applySubst state.subst actual) (applySubst state.subst t)
+                            unifies (applySubst state.subst actual) (applySubst state.subst t)
                     in
                     case answer of
                         Ok subst ->
                             { state | subst = subst }
 
-                        Err err ->
-                            { state | errors = err :: state.errors }
+                        Err ( err, subst ) ->
+                            let
+                                typeErr : Error
+                                typeErr =
+                                    case err of
+                                        UnifiesErrorInfiniteTypeFromBind ty1 ty2 ->
+                                            InfiniteTypeFromBind region ty1 ty2
+
+                                        UnifiesErrorUnificationFail ty1 ty2 ->
+                                            UnificationFail region ty1 ty2
+                            in
+                            { state | errors = typeErr :: state.errors, subst = subst }
 
                 Err err ->
                     { state | errors = err :: state.errors }
@@ -596,44 +616,51 @@ occurs ( name, type_ ) state =
         state
 
 
-unifies : Located.Region -> Type -> Type -> Result Error Subst
-unifies region t1 t2 =
-    -- FIXME find out it applying substs is necessary here,
-    -- FIXME can I get rid of region?
+type UnifiesError
+    = UnifiesErrorInfiniteTypeFromBind Type Type
+    | UnifiesErrorUnificationFail Type Type
+
+
+unifies : Type -> Type -> Result ( UnifiesError, Subst ) Subst
+unifies t1 t2 =
+    -- FIXME is there any benefit to adding the subst to the error here?
+    -- That and the UnifiesError looks a bit annoying to handle in `solve`
+    -- And also, should `unifies r r_` be checked if `unifies l l_` fails?
     if t1 == t2 then
         Ok nullSubst
 
     else
         case ( t1, t2 ) of
             ( TypeVar a, t ) ->
-                bind region a t
+                bind a t
+                    |> Result.mapError (\err -> ( err, nullSubst ))
 
             ( t, TypeVar a ) ->
-                bind region a t
+                bind a t
+                    |> Result.mapError (\err -> ( err, nullSubst ))
 
             ( TypeLambda l r, TypeLambda l_ r_ ) ->
-                unifies region l l_
+                unifies l l_
                     |> Result.andThen
                         (\su1 ->
-                            unifies region (applySubst su1 r) (applySubst su1 r_)
+                            unifies r r_
                                 |> Result.map (Dict.union su1)
+                                |> Result.mapError (Tuple.mapSecond (Dict.union su1))
                         )
 
             _ ->
-                Err (UnificationFail region t1 t2)
+                Err ( UnifiesErrorUnificationFail t1 t2, nullSubst )
 
 
 {-| Creates a fresh unification variable and binds it to the given type
 -}
-bind : Located.Region -> Name -> Type -> Result Error Subst
-bind region a t =
-    -- FIXME find out it applying substs is necessary here,
-    -- FIXME can I get rid of region?
+bind : Name -> Type -> Result UnifiesError Subst
+bind a t =
     if t == TypeVar a then
         Ok Dict.empty
 
     else if occursCheck a t then
-        Result.Err (InfiniteTypeFromBind region (TypeVar a) t)
+        Result.Err (UnifiesErrorInfiniteTypeFromBind (TypeVar a) t)
 
     else
         Ok (Dict.singleton a t)
