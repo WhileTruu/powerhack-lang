@@ -1,0 +1,7 @@
+foo = \a ->
+  x = 1
+  y = 2
+
+  bar x
+
+bar = \a -> a

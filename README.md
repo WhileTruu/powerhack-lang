@@ -16,3 +16,5 @@ make build
 make test
 
 npx elm-review --elmjson cli/elm.json 
+
+make integration-test

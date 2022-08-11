@@ -21,7 +21,7 @@ format error =
             formatParseError filePath fileContents deadEnds
 
         CanonicalizationError err ->
-            Debug.toString err
+            ""
 
         TypeError typeErrors ->
             String.join "\n" (List.map InferTypes.errorToString typeErrors)

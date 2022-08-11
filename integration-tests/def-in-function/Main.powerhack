@@ -1,0 +1,6 @@
+foo = \a ->
+    x = 1
+
+    bar x
+
+bar = \a -> a

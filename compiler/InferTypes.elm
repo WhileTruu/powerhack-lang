@@ -10,7 +10,9 @@ module InferTypes exposing
     , TypeEnv(..)
     , Value(..)
     , errorToString
+    , generalize
     , prettyScheme
+    , prettyType
     , run
     , runForExpr
     )
@@ -684,7 +686,18 @@ type Error
 
 errorToString : Error -> String
 errorToString error =
-    Debug.toString error
+    case error of
+        UnificationFail _ _ _ ->
+            "Unification fail."
+
+        InfiniteTypeFromOccurs _ _ _ ->
+            "Infinite type from occurs."
+
+        InfiniteTypeFromBind _ _ _ ->
+            "Infinite type from bind."
+
+        UnboundVariable _ ->
+            "Unbound variable"
 
 
 

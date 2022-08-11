@@ -3,6 +3,7 @@ module Main exposing (program)
 import Compiler
 import Data.FileContents as FileContents
 import Data.FilePath as FilePath
+import Emit
 import Error
 import List.Extra as List
 import Posix.IO as IO exposing (IO, Process)
@@ -21,14 +22,15 @@ program process =
         processArgs.file
         processArgs.output
         |> Maybe.withDefault (IO.printLn "Error: invalid args")
+        |> IO.andThen (\_ -> IO.exit 1)
 
 
-readCompileAndWrite : { file : String, output : String } -> IO x ()
+readCompileAndWrite : { a | file : IOFile.Filename, output : String } -> IO x ()
 readCompileAndWrite { file, output } =
     IOFile.read file
         |> IO.andThen
             (\s ->
-                case Compiler.compile (FilePath.init file) (FileContents.init s) of
+                case Compiler.compile (FilePath.init file) (FileContents.init s) Emit.FormatJs of
                     Ok outputS ->
                         [ "Success! Compiled 1 module."
                         , ""
@@ -39,17 +41,20 @@ readCompileAndWrite { file, output } =
                             |> String.join "\n"
                             |> IO.print
                             |> IO.map (\_ -> outputS)
+                            |> IO.andThen
+                                (IOFile.write
+                                    (IOFile.CreateIfNotExists IOFile.Truncate IOFilePermission.default)
+                                    output
+                                )
+                            |> IO.andThen (\_ -> IO.exit 0)
 
                     Err error ->
                         Error.format error
-                            |> IO.fail
-            )
-        |> IO.andThen
-            (IOFile.write
-                (IOFile.CreateIfNotExists IOFile.Truncate IOFilePermission.default)
-                output
+                            |> IO.print
+                            |> IO.andThen (\_ -> IO.exit 1)
             )
         |> IO.recover IO.print
+        |> IO.andThen (\_ -> IO.exit 1)
 
 
 

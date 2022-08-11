@@ -1,14 +1,14 @@
-module Compiler exposing (compile, inferTypesTestSuite, parseAndCompileTestSuite)
+module Compiler exposing (compile, inferTypesTestSuite)
 
 import AssocList as Dict
 import Canonicalize
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
 import Data.Name as Name
+import Emit
 import Error exposing (Error)
 import Expect
 import Fuzz
-import Generate
 import InferTypes
 import Parse
 import Parse.Expression
@@ -21,8 +21,8 @@ import String.Extra
 import Test exposing (Test)
 
 
-compile : FilePath -> FileContents -> Result Error String
-compile filePath fileContents =
+compile : FilePath -> FileContents -> Emit.Format -> Result Error String
+compile filePath fileContents format =
     Parse.parse filePath fileContents
         |> Result.andThen Canonicalize.canonicalize
         |> Result.andThen
@@ -34,262 +34,26 @@ compile filePath fileContents =
                     Err errors ->
                         Err (Error.TypeError errors)
             )
-        |> Result.map Generate.generate
-        >> Result.map ((++) (builtIns ++ "\n\n"))
-        >> Result.map (\a -> a ++ "\n\nconsole.log((function () { return main() })())")
-
-
-builtIns : String
-builtIns =
-    [ "#!/usr/bin/env node"
-    , ""
-
-    -- FIXME These need to match the primitives in InferTypes module
-    , "var add = function (b) { return function (a) { return a + b; }; }"
-    , "var sub = function (b) { return function (a) { return a - b; }; }"
-    , "var eq = function (b) { return function (a) { return a === b; }; }"
-    ]
-        |> String.join "\n"
-
-
-parseAndCompileTestSuite : Test
-parseAndCompileTestSuite =
-    let
-        parseAndGenerate : String -> Result Error String
-        parseAndGenerate input =
-            Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
-                |> Result.andThen Canonicalize.canonicalize
-                |> Result.andThen
-                    (InferTypes.run
-                        >> Result.map Tuple.first
-                        >> Result.mapError Error.TypeError
-                    )
-                |> Result.map Generate.generate
-    in
-    Test.describe "Parse and compile"
-        [ Test.fuzz2 varNameFuzzer (Fuzz.map abs Fuzz.int) "variable" <|
-            \varName int ->
-                let
-                    input : String
-                    input =
-                        varName ++ " = " ++ String.fromInt int
-
-                    output : String
-                    output =
-                        "var " ++ varName ++ " = " ++ String.fromInt int
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.fuzz varNameFuzzer "function" <|
-            \varName ->
-                let
-                    input : String
-                    input =
-                        varName ++ " = \\a b c d -> 3"
-
-                    output : String
-                    output =
-                        [ "var " ++ varName ++ " = function (a) {"
-                        , "    return function (b) {"
-                        , "        return function (c) {"
-                        , "            return function (d) {"
-                        , "                return 3"
-                        , "            }"
-                        , "        }"
-                        , "    }"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.fuzz varNameFuzzer "nested functions" <|
-            \varName ->
-                let
-                    input : String
-                    input =
-                        varName ++ " = \\a b -> \\c d -> 3"
-
-                    output : String
-                    output =
-                        [ "var " ++ varName ++ " = function (a) {"
-                        , "    return function (b) {"
-                        , "        return function (c) {"
-                        , "            return function (d) {"
-                        , "                return 3"
-                        , "            }"
-                        , "        }"
-                        , "    }"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.fuzz varNameFuzzer "nested function formatted on multiple lines" <|
-            \varName ->
-                let
-                    input : String
-                    input =
-                        [ varName ++ " ="
-                        , "    \\a b ->"
-                        , "        \\c d ->"
-                        , "            3"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        [ "var " ++ varName ++ " = function (a) {"
-                        , "    return function (b) {"
-                        , "        return function (c) {"
-                        , "            return function (d) {"
-                        , "                return 3"
-                        , "            }"
-                        , "        }"
-                        , "    }"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.test "definition in function" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "varName ="
-                        , "    \\a ->"
-                        , "        x = 1"
-                        , ""
-                        , "        bar x"
-                        , ""
-                        , "bar = \\a -> a"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        [ "var bar = function (a) {"
-                        , "    return a"
-                        , "}"
-                        , ""
-                        , "var varName = function (a) {"
-                        , "    return (function () {"
-                        , "        var x = 1"
-                        , "        return bar(x)"
-                        , "    })()"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.test "multiple definitions in function" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "varName ="
-                        , "    \\a ->"
-                        , "        x = 1"
-                        , "        y = 2"
-                        , ""
-                        , "        bar x"
-                        , ""
-                        , "bar = \\a -> a"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        [ "var bar = function (a) {"
-                        , "    return a"
-                        , "}"
-                        , ""
-                        , "var varName = function (a) {"
-                        , "    return (function () {"
-                        , "        var y = 2"
-                        , "        var x = 1"
-                        , "        return bar(x)"
-                        , "    })()"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.test "multiple definitions in function that returns function" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "varName ="
-                        , "    \\a ->"
-                        , "        x = 1"
-                        , "        y = 2"
-                        , ""
-                        , "        \\b -> bar x"
-                        , ""
-                        , "bar = \\a -> a"
-                        ]
-                            |> String.join "\n"
-
-                    output : String
-                    output =
-                        [ "var bar = function (a) {"
-                        , "    return a"
-                        , "}"
-                        , ""
-                        , "var varName = function (a) {"
-                        , "    return (function () {"
-                        , "        var y = 2"
-                        , "        var x = 1"
-                        , "        return function (b) {"
-                        , "            return bar(x)"
-                        , "        }"
-                        , "    })()"
-                        , "}"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        , Test.test "if then else" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        "varName = if eq 1 2 then 1 else 2"
-
-                    output : String
-                    output =
-                        [ "var varName = (function () {"
-                        , "    if (eq(1)(2)) {"
-                        , "        return 1"
-                        , "    } else {"
-                        , "        return 2"
-                        , "    }"
-                        , "})()"
-                        ]
-                            |> String.join "\n"
-                in
-                Expect.equal (Ok output) (parseAndGenerate input)
-        ]
+        |> Result.map (Emit.run format)
 
 
 inferTypesTestSuite : Test
 inferTypesTestSuite =
     let
-        parseExprAndInferTypes : String -> Result String String
+        parseExprAndInferTypes : String -> Result Error String
         parseExprAndInferTypes input =
             P.run Parse.Expression.expression input
-                |> Result.mapError Debug.toString
-                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalizeExpr)
-                |> Result.andThen (Result.mapError Debug.toString << InferTypes.runForExpr)
+                |> Result.mapError (\a -> Error.ParseError a (FileContents.init input) (FilePath.init "Fake.powerhack"))
+                |> Result.andThen (Result.mapError Error.CanonicalizationError << Canonicalize.canonicalizeExpr)
+                |> Result.andThen (Result.mapError Error.TypeError << InferTypes.runForExpr)
                 |> Result.map Tuple.first
                 |> Result.map InferTypes.prettyScheme
 
-        parseAndInferType : String -> Result String String
+        parseAndInferType : String -> Result Error String
         parseAndInferType input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
-                |> Result.mapError Debug.toString
-                |> Result.andThen (Result.mapError Debug.toString << Canonicalize.canonicalize)
-                |> Result.andThen (Result.mapError Debug.toString << InferTypes.run)
+                |> Result.andThen Canonicalize.canonicalize
+                |> Result.andThen (Result.mapError Error.TypeError << InferTypes.run)
                 |> Result.map Tuple.second
                 |> Result.map
                     (Dict.foldl
@@ -320,25 +84,25 @@ inferTypesTestSuite =
         , Test.test "variable 2" <|
             \_ ->
                 """
-                \\a ->
-                    x = 1
-                    1
-                """
+                   \\a ->
+                       x = 1
+                       1
+                   """
                     |> (String.Extra.unindent >> String.trim)
                     |> parseExprAndInferTypes
                     |> Expect.equal (Ok "∀ a. a -> Int")
         , Test.test "variable 3" <|
             \_ ->
                 """
-                \\x ->
-                    fib = \\n a b ->
-                        if eq 0 n then
-                            a
-                        else
-                            fib (sub 1 n) b (add b a)
-                    
-                    fib 10 0 1
-                """
+                   \\x ->
+                       fib = \\n a b ->
+                           if eq 0 n then
+                               a
+                           else
+                               fib (sub 1 n) b (add b a)
+
+                       fib 10 0 1
+                   """
                     |> (String.Extra.unindent >> String.trim)
                     |> parseExprAndInferTypes
                     |> Expect.equal (Ok "∀ a. a -> Int")
@@ -354,15 +118,15 @@ inferTypesTestSuite =
                             |> String.join "\n"
                 in
                 """
-                main = \\arggg ->
-                    fib 10 0 1
+                   main = \\arggg ->
+                       fib 10 0 1
 
-                fib = \\n a b ->
-                    if eq 0 n then
-                        a
-                    else
-                        fib (sub 1 n) b (add b a)
-                """
+                   fib = \\n a b ->
+                       if eq 0 n then
+                           a
+                       else
+                           fib (sub 1 n) b (add b a)
+                   """
                     |> (String.Extra.unindent >> String.trim)
                     |> parseAndInferType
                     |> Expect.equal (Ok expected)
@@ -382,22 +146,6 @@ inferTypesTestSuite =
                 in
                 parseAndInferType input
                     |> Expect.equal (Ok expected)
-        , Test.test "unbound variable" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "foo = \\a -> potato 1"
-                        , ""
-                        ]
-                            |> String.join "\n"
-
-                    expected : String
-                    expected =
-                        "[UnboundVariable (Located { end = { col = 20, row = 1 }, start = { col = 20, row = 1 } } (Name \"potato\"))]"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Err expected)
         , Test.skip <|
             Test.test "recursive value" <|
                 -- FIXME some sort of cycle detection thing?
@@ -406,22 +154,6 @@ inferTypesTestSuite =
                     "x = add x 1"
                         |> parseAndInferType
                         |> Expect.err
-        , Test.test "unification fail" <|
-            \_ ->
-                let
-                    input : String
-                    input =
-                        [ "bar = \\x -> foo 1 1"
-                        , "foo = \\a -> add a 1"
-                        ]
-                            |> String.join "\n"
-
-                    expected : String
-                    expected =
-                        "[UnificationFail { end = { col = 1, row = 2 }, start = { col = 1, row = 2 } } (TypeApplied (Name \"Int\") []) (TypeLambda (TypeApplied (Name \"Int\") []) (TypeVar (Name \"u2\")))]"
-                in
-                parseAndInferType input
-                    |> Expect.equal (Err expected)
         , let
             fuzzer : Fuzz.Fuzzer String
             fuzzer =
@@ -451,16 +183,6 @@ inferTypesTestSuite =
                             )
                             expected
                         )
-        , Test.test "infinite type from bind" <|
-            \_ ->
-                let
-                    expected : String
-                    expected =
-                        "[InfiniteTypeFromBind { end = { col = 16, row = 1 }, start = { col = 7, row = 1 } } (TypeVar (Name \"u2\")) (TypeLambda (TypeVar (Name \"u1\")) (TypeVar (Name \"u2\")))]"
-                in
-                "foo = \\a -> foo"
-                    |> parseAndInferType
-                    |> Expect.equal (Err expected)
         , Test.todo "infinite type from occurs"
         ]
 
