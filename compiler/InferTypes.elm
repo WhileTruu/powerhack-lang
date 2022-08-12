@@ -10,7 +10,6 @@ module InferTypes exposing
     , TypeEnv(..)
     , Value(..)
     , errorToString
-    , generalize
     , prettyScheme
     , prettyType
     , run

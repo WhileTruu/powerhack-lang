@@ -1,4 +1,4 @@
-module Emit.PrettyAST exposing (..)
+module Emit.PrettyAST exposing (run)
 
 -- PRETTY AST
 
@@ -97,4 +97,4 @@ typeFromExpr locatedExpr =
 
 indent : Int -> String -> String
 indent lvl string =
-    String.repeat (lvl * 1) " " ++ string
+    String.repeat lvl " " ++ string

@@ -13,10 +13,6 @@ import InferTypes
 import Parse
 import Parse.Expression
 import Parser.Advanced as P
-import Random exposing (Generator)
-import Random.Extra as Random
-import Random.String
-import Shrink
 import String.Extra
 import Test exposing (Test)
 
@@ -24,7 +20,7 @@ import Test exposing (Test)
 compile : FilePath -> FileContents -> Emit.Format -> Result Error String
 compile filePath fileContents format =
     Parse.parse filePath fileContents
-        |> Result.andThen Canonicalize.canonicalize
+        |> Result.map Canonicalize.canonicalize
         |> Result.andThen
             (\a ->
                 case InferTypes.run a of
@@ -44,7 +40,7 @@ inferTypesTestSuite =
         parseExprAndInferTypes input =
             P.run Parse.Expression.expression input
                 |> Result.mapError (\a -> Error.ParseError a (FileContents.init input) (FilePath.init "Fake.powerhack"))
-                |> Result.andThen (Result.mapError Error.CanonicalizationError << Canonicalize.canonicalizeExpr)
+                |> Result.map Canonicalize.canonicalizeExpr
                 |> Result.andThen (Result.mapError Error.TypeError << InferTypes.runForExpr)
                 |> Result.map Tuple.first
                 |> Result.map InferTypes.prettyScheme
@@ -52,7 +48,7 @@ inferTypesTestSuite =
         parseAndInferType : String -> Result Error String
         parseAndInferType input =
             Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
-                |> Result.andThen Canonicalize.canonicalize
+                |> Result.map Canonicalize.canonicalize
                 |> Result.andThen (Result.mapError Error.TypeError << InferTypes.run)
                 |> Result.map Tuple.second
                 |> Result.map
@@ -185,38 +181,3 @@ inferTypesTestSuite =
                         )
         , Test.todo "infinite type from occurs"
         ]
-
-
-varNameFuzzer : Fuzz.Fuzzer String
-varNameFuzzer =
-    let
-        digitCharGenerator : Generator Char
-        digitCharGenerator =
-            Random.map Char.fromCode (Random.int 48 57)
-
-        upperCaseAlphaCharGenerator : Generator Char
-        upperCaseAlphaCharGenerator =
-            Random.map Char.fromCode (Random.int 65 90)
-
-        lowerCaseAlphaCharGenerator : Generator Char
-        lowerCaseAlphaCharGenerator =
-            Random.map Char.fromCode (Random.int 97 122)
-
-        validCharGenerator : Generator Char
-        validCharGenerator =
-            Random.choices digitCharGenerator [ upperCaseAlphaCharGenerator, lowerCaseAlphaCharGenerator ]
-
-        asciiGenerator : Random.Generator String
-        asciiGenerator =
-            Random.frequency
-                ( 3, Random.int 1 10 )
-                [ ( 0.2, Random.constant 0 )
-                , ( 1, Random.int 11 50 )
-                , ( 1, Random.int 50 1000 )
-                ]
-                |> Random.andThen (\len -> Random.String.string len validCharGenerator)
-                |> Random.andThen (\str -> Random.map (\a -> String.cons a str) lowerCaseAlphaCharGenerator)
-    in
-    Fuzz.map2 String.cons
-        (Fuzz.custom lowerCaseAlphaCharGenerator (Shrink.atLeastChar 'a'))
-        (Fuzz.custom asciiGenerator Shrink.string)

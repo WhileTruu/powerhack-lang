@@ -1,4 +1,4 @@
-module Error exposing (CanonicalizationError, Error(..), format)
+module Error exposing (Error(..), format)
 
 import Console
 import Data.FileContents as FileContents exposing (FileContents)
@@ -10,7 +10,6 @@ import Parser.Advanced as P
 
 type Error
     = ParseError (List (P.DeadEnd E.Context E.Problem)) FileContents FilePath
-    | CanonicalizationError CanonicalizationError
     | TypeError (List InferTypes.Error)
 
 
@@ -20,15 +19,8 @@ format error =
         ParseError deadEnds fileContents filePath ->
             formatParseError filePath fileContents deadEnds
 
-        CanonicalizationError err ->
-            ""
-
         TypeError typeErrors ->
             String.join "\n" (List.map InferTypes.errorToString typeErrors)
-
-
-type alias CanonicalizationError =
-    ()
 
 
 formatParseError : FilePath -> FileContents -> List (P.DeadEnd E.Context E.Problem) -> String

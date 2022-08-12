@@ -1,18 +1,8 @@
-module Emit.Js exposing (..)
+module Emit.Js exposing (run)
 
 import Data.Located as Located
 import Data.Name as Name
 import InferTypes
-
-
-builtIns : String
-builtIns =
-    -- FIXME These need to match the primitives in InferTypes module
-    [ "var add = function (b) { return function (a) { return a + b; }; }"
-    , "var sub = function (b) { return function (a) { return a - b; }; }"
-    , "var eq = function (b) { return function (a) { return a === b; }; }"
-    ]
-        |> String.join "\n"
 
 
 run : InferTypes.Module -> String
@@ -24,6 +14,16 @@ run module_ =
     , "console.log((function () { return main() })())"
     ]
         |> String.join "\n\n"
+
+
+builtIns : String
+builtIns =
+    -- FIXME These need to match the primitives in InferTypes module
+    [ "var add = function (b) { return function (a) { return a + b; }; }"
+    , "var sub = function (b) { return function (a) { return a - b; }; }"
+    , "var eq = function (b) { return function (a) { return a === b; }; }"
+    ]
+        |> String.join "\n"
 
 
 generateJsValue : InferTypes.Value -> String
