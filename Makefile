@@ -13,3 +13,7 @@ test:
 integration-test:
 	cd cli && ../elm-posix/bin/elm-cli make src/Main.elm ../build/powerhack
 	npx ava
+
+.PHONY: elm-review
+elm-review:
+	npx elm-review --elmjson cli/elm.json
