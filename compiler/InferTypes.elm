@@ -28,7 +28,7 @@ import Data.Name as Name exposing (Name)
 
 primitives : RTV
 primitives =
-    -- FIXME These need to match the builtins in Compiler module
+    -- FIXME These need to match the builtins in Emit modules
     Dict.fromList
         [ ( Name.fromString "add", TypeLambda typeInt (TypeLambda typeInt typeInt) )
         , ( Name.fromString "sub", TypeLambda typeInt (TypeLambda typeInt typeInt) )
