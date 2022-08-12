@@ -5,6 +5,11 @@ build:
 	rm -rf build/powerhack
 	cd cli && ../elm-posix/bin/elm-cli make src/Main.elm ../build/powerhack
 
+.PHONY: build-debug
+build-debug:
+	rm -rf build/powerhack
+	cd cli && ../elm-posix/bin/elm-cli make --debug src/Main.elm ../build/powerhack
+
 .PHONY: test
 test:
 	cd cli && elm-test $(foreach x, $(call rwildcard,compiler/,*.elm), ../$x)
