@@ -11,7 +11,6 @@ import Expect
 import Fuzz
 import InferTypes
 import Parse
-import Parse.Expression
 import Parser.Advanced as P
 import String.Extra
 import Test exposing (Test)
@@ -19,16 +18,12 @@ import Test exposing (Test)
 
 compile : FilePath -> FileContents -> Emit.Format -> Result Error String
 compile filePath fileContents format =
-    Parse.run filePath fileContents
+    Result.mapError Error.ParseError (Parse.run filePath fileContents)
         |> Result.map Canonicalize.canonicalize
         |> Result.andThen
-            (\a ->
-                case InferTypes.run a of
-                    Ok ( module_, _ ) ->
-                        Ok module_
-
-                    Err errors ->
-                        Err (Error.TypeError errors)
+            (InferTypes.run
+                >> Result.map Tuple.first
+                >> Result.mapError Error.TypeError
             )
         |> Result.map (Emit.run format)
 
@@ -38,8 +33,9 @@ inferTypesTestSuite =
     let
         parseExprAndInferTypes : String -> Result Error String
         parseExprAndInferTypes input =
-            P.run Parse.Expression.expression input
-                |> Result.mapError (\a -> Error.ParseError a (FileContents.init input) (FilePath.init "Fake.powerhack"))
+            P.run Parse.expression input
+                |> Result.mapError (\a -> Parse.Error a (FileContents.init input) (FilePath.init "Test.powerhack"))
+                |> Result.mapError Error.ParseError
                 |> Result.map Canonicalize.canonicalizeExpr
                 |> Result.andThen (Result.mapError Error.TypeError << InferTypes.runForExpr)
                 |> Result.map Tuple.first
@@ -48,6 +44,7 @@ inferTypesTestSuite =
         parseAndInferType : String -> Result Error String
         parseAndInferType input =
             Parse.run (FilePath.init "Test.powerhack") (FileContents.init input)
+                |> Result.mapError Error.ParseError
                 |> Result.map Canonicalize.canonicalize
                 |> Result.andThen (Result.mapError Error.TypeError << InferTypes.run)
                 |> Result.map Tuple.second

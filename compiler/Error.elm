@@ -4,38 +4,38 @@ import Console
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
 import InferTypes
-import Parse.Error as E
+import Parse
 import Parser.Advanced as P
 
 
 type Error
-    = ParseError (List (P.DeadEnd E.Context E.Problem)) FileContents FilePath
+    = ParseError Parse.Error
     | TypeError (List InferTypes.Error)
 
 
 format : Error -> String
 format error =
     case error of
-        ParseError deadEnds fileContents filePath ->
+        ParseError (Parse.Error deadEnds fileContents filePath) ->
             formatParseError filePath fileContents deadEnds
 
         TypeError typeErrors ->
             String.join "\n" (List.map InferTypes.errorToString typeErrors)
 
 
-formatParseError : FilePath -> FileContents -> List (P.DeadEnd E.Context E.Problem) -> String
+formatParseError : FilePath -> FileContents -> List (P.DeadEnd Parse.Context Parse.Problem) -> String
 formatParseError filePath fileContents deadEnds =
     deadEndsToReports fileContents deadEnds
         |> List.map (renderReport filePath)
         |> String.join "\n"
 
 
-deadEndsToReports : FileContents -> List (P.DeadEnd E.Context E.Problem) -> List Report
+deadEndsToReports : FileContents -> List (P.DeadEnd Parse.Context Parse.Problem) -> List Report
 deadEndsToReports fileContents deadEnds =
     List.map (deadEndToReport fileContents) deadEnds
 
 
-deadEndToReport : FileContents -> P.DeadEnd E.Context E.Problem -> Report
+deadEndToReport : FileContents -> P.DeadEnd Parse.Context Parse.Problem -> Report
 deadEndToReport fileContents deadEnd =
     { title =
         case deadEnd.contextStack of
@@ -43,7 +43,7 @@ deadEndToReport fileContents deadEnd =
                 "PROBLEM WITH PARSING?"
 
             first :: _ ->
-                "PROBLEM " ++ E.contextToString first.context
+                "PROBLEM " ++ Parse.contextToString first.context
     , message =
         [ case deadEnd.contextStack of
             [] ->
@@ -51,75 +51,75 @@ deadEndToReport fileContents deadEnd =
 
             first :: _ ->
                 case first.context of
-                    E.InLambda ->
+                    Parse.InLambda ->
                         "I got stuck parsing this lambda here:"
 
-                    E.InDef ->
+                    Parse.InDef ->
                         "I got stuck parsing this definition here:"
 
-                    E.InDefs ->
+                    Parse.InDefs ->
                         "I got stuck parsing these definitions here:"
 
-                    E.InIf ->
+                    Parse.InIf ->
                         "I got stuck parsing this `if` expression here:"
 
-                    E.InFile filePath ->
+                    Parse.InFile filePath ->
                         "I got stuck parsing this file here: " ++ FilePath.toString filePath
         , render fileContents deadEnd
         , case deadEnd.problem of
-            E.ExpectingVarName ->
+            Parse.ExpectingVarName ->
                 "I was expecting to see a variable name."
 
-            E.ExpectingDef ->
+            Parse.ExpectingDef ->
                 "I was expecting to see a def."
 
-            E.InvalidTab ->
+            Parse.InvalidTab ->
                 "FIXME: I don't like tabs."
 
-            E.InvalidNumber ->
+            Parse.InvalidNumber ->
                 "I was expecting to see a valid number."
 
-            E.ExpectingNumber ->
+            Parse.ExpectingNumber ->
                 "I was expecting to see a number."
 
-            E.ExpectingOpenParen ->
+            Parse.ExpectingOpenParen ->
                 "I was expecting to see an opening parenthesis next. Try putting a "
                     ++ Console.green "("
                     ++ " next and see if that helps?"
 
-            E.ExpectingCloseParen ->
+            Parse.ExpectingCloseParen ->
                 "I was expecting to see a closing parenthesis next. Try putting a "
                     ++ Console.green ")"
                     ++ " next and see if that helps?"
 
-            E.ExpectingEquals ->
+            Parse.ExpectingEquals ->
                 "I was expecting to see the equals sign (" ++ Console.green "=" ++ ") next."
 
-            E.ExpectingBackslash ->
+            Parse.ExpectingBackslash ->
                 "I was expecting to see a backslash next."
 
-            E.ExpectingRightArrow ->
+            Parse.ExpectingRightArrow ->
                 "I was expecting to see the right arrow " ++ Console.green "->" ++ " next."
 
-            E.FuncIdentBody ->
+            Parse.FuncIdentBody ->
                 "I was expecting the function body to be indented."
 
-            E.ExpectingIndentation ->
+            Parse.ExpectingIndentation ->
                 "I was expecting to see indentation next."
 
-            E.ExpectingNoIndentation ->
+            Parse.ExpectingNoIndentation ->
                 "I was expecting to see no indentation  next."
 
-            E.ExpectingIf ->
+            Parse.ExpectingIf ->
                 "I was expecting to see the " ++ Console.green "if" ++ " keyword next."
 
-            E.ExpectingThen ->
+            Parse.ExpectingThen ->
                 "I was expecting to see the " ++ Console.green "then" ++ " keyword next."
 
-            E.ExpectingElse ->
+            Parse.ExpectingElse ->
                 "I was expecting to see the " ++ Console.green "else" ++ " keyword next."
 
-            E.ExpectingEnd ->
+            Parse.ExpectingEnd ->
                 "Whatever is here, I wasn't expecting it!"
         , deadEndToString deadEnd
         ]
@@ -127,7 +127,7 @@ deadEndToReport fileContents deadEnd =
     }
 
 
-render : FileContents -> P.DeadEnd E.Context E.Problem -> String
+render : FileContents -> P.DeadEnd Parse.Context Parse.Problem -> String
 render fileContents deadEnd =
     let
         startLine : Int
@@ -210,17 +210,17 @@ renderReport filePath report =
         |> String.join "\n"
 
 
-deadEndToString : P.DeadEnd E.Context E.Problem -> String
+deadEndToString : P.DeadEnd Parse.Context Parse.Problem -> String
 deadEndToString { row, col, problem, contextStack } =
     String.fromInt row
         ++ ":"
         ++ String.fromInt col
         ++ " "
-        ++ E.problemToString problem
+        ++ Parse.problemToString problem
         ++ " <--\n    "
         ++ String.join " <-- " (List.map contextToString contextStack)
 
 
-contextToString : { row : Int, col : Int, context : E.Context } -> String
+contextToString : { row : Int, col : Int, context : Parse.Context } -> String
 contextToString { row, col, context } =
-    String.fromInt row ++ ":" ++ String.fromInt col ++ " " ++ E.contextToString context
+    String.fromInt row ++ ":" ++ String.fromInt col ++ " " ++ Parse.contextToString context
