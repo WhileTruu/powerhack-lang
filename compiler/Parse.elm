@@ -10,9 +10,11 @@ module Parse exposing
     )
 
 import AST.Source as Source
+import AssocList as Dict exposing (Dict)
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
 import Data.Located as Located exposing (Located)
+import Data.ModuleName as ModuleName exposing (ModuleName)
 import Data.Name as Name exposing (Name)
 import Expect
 import Parser.Advanced as P exposing ((|.), (|=))
@@ -27,29 +29,77 @@ run filePath fileContents =
         |> Result.mapError (\a -> Error a fileContents filePath)
 
 
+reserved : Set.Set String
+reserved =
+    Set.fromList
+        [ "if"
+        , "then"
+        , "else"
+        , "imports"
+        ]
+
+
 
 -- MODULE
 
 
 module_ : FilePath -> P.Parser Context Problem Source.Module
 module_ filePath =
-    P.succeed (\( decl, decls ) -> categorizeDecls (decl :: decls))
+    P.succeed Source.Module
+        |= imports
+        |. ignoreables
         |= (oneOrMoreWith ignoreables declaration
+                |> P.map (\( decl, decls ) -> categorizeDecls (decl :: decls))
                 |> P.inContext (InFile filePath)
            )
         |. P.end ExpectingEnd
 
 
-categorizeDecls : List Declaration -> { values : List Source.Value }
+categorizeDecls : List Declaration -> List Source.Value
 categorizeDecls decls =
     List.foldl
-        (\decl { values } ->
+        (\decl values ->
             case decl of
                 Value val ->
-                    { values = val :: values }
+                    val :: values
         )
-        { values = [] }
+        []
         decls
+
+
+
+-- IMPORTS
+
+
+imports : P.Parser Context Problem (Dict ModuleName ())
+imports =
+    P.oneOf
+        [ P.succeed identity
+            |. P.keyword (P.Token "imports" ExpectingImports)
+            |. ignoreables
+            |= (P.sequence
+                    { start = P.Token "[" ExpectingOpenBracket
+                    , separator = P.Token "," ExpectingComma
+                    , end = P.Token "]" ExpectingCloseBracket
+                    , spaces = ignoreables
+                    , item = moduleName
+                    , trailing = P.Optional
+                    }
+                    |> P.map (Dict.fromList << List.map (\a -> ( a, () )))
+               )
+        , P.succeed Dict.empty
+        ]
+
+
+moduleName : P.Parser context Problem ModuleName
+moduleName =
+    P.variable
+        { start = Char.isUpper
+        , inner = \c -> Char.isAlphaNum c || c == '_'
+        , reserved = reserved
+        , expecting = ExpectingModuleName
+        }
+        |> P.map ModuleName.fromString
 
 
 
@@ -245,7 +295,7 @@ variable =
     P.variable
         { start = Char.isLower
         , inner = \c -> Char.isAlphaNum c || c == '_'
-        , reserved = Set.fromList [ "if", "then", "else" ]
+        , reserved = reserved
         , expecting = ExpectingVarName
         }
         |> P.map Name.fromString
@@ -427,6 +477,11 @@ type Problem
     | ExpectingThen
     | ExpectingElse
     | ExpectingEnd
+    | ExpectingImports
+    | ExpectingOpenBracket
+    | ExpectingComma
+    | ExpectingCloseBracket
+    | ExpectingModuleName
 
 
 problemToString : Problem -> String
@@ -482,6 +537,21 @@ problemToString problem =
 
         ExpectingEnd ->
             "Expecting end"
+
+        ExpectingImports ->
+            "Expecting imports"
+
+        ExpectingOpenBracket ->
+            "Expecting open bracket"
+
+        ExpectingComma ->
+            "Expecting comma"
+
+        ExpectingCloseBracket ->
+            "Expecting close bracket"
+
+        ExpectingModuleName ->
+            "Expecting module name"
 
 
 

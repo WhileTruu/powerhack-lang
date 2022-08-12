@@ -1,3 +1,5 @@
+imports [ MyModule ]
+
 main = \a ->
     fib 10 0 1
 

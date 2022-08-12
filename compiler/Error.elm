@@ -121,6 +121,24 @@ deadEndToReport fileContents deadEnd =
 
             Parse.ExpectingEnd ->
                 "Whatever is here, I wasn't expecting it!"
+
+            Parse.ExpectingImports ->
+                "I was expecting to see the " ++ Console.green "imports" ++ " keyword next."
+
+            Parse.ExpectingOpenBracket ->
+                "I was expecting to see the open bracket (" ++ Console.green "[" ++ ") next."
+
+            Parse.ExpectingComma ->
+                "I was expecting to see the comma sign (" ++ Console.green "," ++ ") next."
+
+            Parse.ExpectingCloseBracket ->
+                "I was expecting to see the close bracket (" ++ Console.green "]" ++ ") next."
+
+            Parse.ExpectingModuleName ->
+                -- TODO Add better explanation
+                "I was expecting to see the module name next."
+                    ++ "Module names start with an uppercase letter and can only "
+                    ++ "contain letters, numbers, and underscores."
         , deadEndToString deadEnd
         ]
             |> String.join "\n\n"

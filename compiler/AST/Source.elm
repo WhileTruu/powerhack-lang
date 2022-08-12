@@ -6,7 +6,9 @@ module AST.Source exposing
     , Value(..)
     )
 
+import AssocList exposing (Dict)
 import Data.Located exposing (Located)
+import Data.ModuleName exposing (ModuleName)
 import Data.Name exposing (Name)
 
 
@@ -40,7 +42,8 @@ type Def
 
 
 type alias Module =
-    { values : List Value
+    { imports : Dict ModuleName ()
+    , values : List Value
     }
 
 
