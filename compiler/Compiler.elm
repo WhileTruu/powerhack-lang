@@ -19,7 +19,7 @@ import Test exposing (Test)
 
 compile : FilePath -> FileContents -> Emit.Format -> Result Error String
 compile filePath fileContents format =
-    Parse.parse filePath fileContents
+    Parse.run filePath fileContents
         |> Result.map Canonicalize.canonicalize
         |> Result.andThen
             (\a ->
@@ -47,7 +47,7 @@ inferTypesTestSuite =
 
         parseAndInferType : String -> Result Error String
         parseAndInferType input =
-            Parse.parse (FilePath.init "Test.powerhack") (FileContents.init input)
+            Parse.run (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.map Canonicalize.canonicalize
                 |> Result.andThen (Result.mapError Error.TypeError << InferTypes.run)
                 |> Result.map Tuple.second

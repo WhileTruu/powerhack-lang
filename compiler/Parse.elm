@@ -1,4 +1,4 @@
-module Parse exposing (parse, testSuite)
+module Parse exposing (run, testSuite)
 
 import AST.Source as Source
 import Data.FileContents as FileContents exposing (FileContents)
@@ -13,8 +13,8 @@ import String.Extra
 import Test exposing (Test)
 
 
-parse : FilePath -> FileContents -> Result Error Source.Module
-parse filePath fileContents =
+run : FilePath -> FileContents -> Result Error Source.Module
+run filePath fileContents =
     P.run (Parse.Module.module_ filePath) (FileContents.toString fileContents)
         |> Result.mapError (\a -> Error.ParseError a fileContents filePath)
 
@@ -24,7 +24,7 @@ testSuite =
     let
         parseString : String -> Result Error (List Source.Value)
         parseString input =
-            parse (FilePath.init "Test.powerhack") (FileContents.init input)
+            run (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.map .values
     in
     Test.describe "Suite"
