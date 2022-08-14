@@ -1,4 +1,5 @@
 imports [ MyModule ]
 
 main =
-    func
+    x = myModuleVal
+    myModule2Val

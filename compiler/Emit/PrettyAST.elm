@@ -5,21 +5,22 @@ module Emit.PrettyAST exposing (run)
 import AssocList as Dict exposing (Dict)
 import Console
 import Data.Located as Located
-import Data.ModuleName exposing (ModuleName)
+import Data.ModuleName as ModuleName exposing (ModuleName)
 import Data.Name as Name
 import InferTypes
 
 
 run : Dict ModuleName InferTypes.Module -> String
 run modules =
-    Dict.values modules
-        |> List.concatMap (List.map generatePrettyAstValue << .values)
+    Dict.toList modules
+        |> List.concatMap (\( a, b ) -> List.map (generatePrettyAstValue a) b.values)
         |> String.join "\n\n"
 
 
-generatePrettyAstValue : InferTypes.Value -> String
-generatePrettyAstValue (InferTypes.Value varName expr) =
+generatePrettyAstValue : ModuleName -> InferTypes.Value -> String
+generatePrettyAstValue moduleName (InferTypes.Value varName expr) =
     [ Console.cyan "def: " ++ Console.green (InferTypes.prettyType (typeFromExpr expr))
+    , indent 1 ("module: " ++ Console.red (ModuleName.toString moduleName))
     , indent 1 ("name: " ++ Console.red (Name.toString (Located.toValue varName)))
     , indent 1 "body:"
     , generatePrettyAstExpr 2 expr
@@ -46,8 +47,9 @@ generatePrettyAstExpr lvl expr =
             ]
                 |> String.join "\n"
 
-        ( InferTypes.Var name, type_ ) ->
+        ( InferTypes.Var moduleName name, type_ ) ->
             [ indent lvl (Console.cyan "var: ") ++ Console.green (InferTypes.prettyType type_)
+            , indent (lvl + 1) ("module: " ++ Console.red (ModuleName.toString moduleName))
             , indent (lvl + 1) ("name: " ++ Console.red (Name.toString name))
             ]
                 |> String.join "\n"

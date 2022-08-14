@@ -23,12 +23,32 @@ canonicalizeModule :
     -> Result Error Canonical.Module
 canonicalizeModule modules name module_ =
     let
+        vars : Dict Name Var
+        vars =
+            modules
+                |> Dict.filter
+                    (\k _ ->
+                        (k == name)
+                            || List.member k (Dict.keys module_.imports)
+                    )
+                |> Dict.foldl
+                    (\k v acc ->
+                        v.values
+                            |> List.map
+                                (\(Source.Value varName _) ->
+                                    ( Located.toValue varName, VarTopLevel k (Located.getRegion varName) )
+                                )
+                            |> Dict.fromList
+                            |> Dict.union acc
+                    )
+                    Dict.empty
+
         values : Result Error (List Canonical.Value)
         values =
             List.foldl
                 (\(Source.Value varName expr) ->
                     Result.map2 ((::) << Canonical.Value varName)
-                        (canonicalizeExpr { home = name, vars = Dict.empty }
+                        (canonicalizeExpr { home = name, vars = vars }
                             expr
                         )
                 )
@@ -46,7 +66,7 @@ type alias Env =
 
 type Var
     = VarLocal
-    | VarTopLevel Located.Region
+    | VarTopLevel ModuleName Located.Region
 
 
 canonicalizeExpr : Env -> Source.LocatedExpr -> Result Error Canonical.LocatedExpr
@@ -153,8 +173,8 @@ findVar region env name =
                 VarLocal ->
                     Ok (Located.located region (Canonical.VarLocal name))
 
-                VarTopLevel _ ->
-                    Ok (Located.located region (Canonical.Var name))
+                VarTopLevel moduleName _ ->
+                    Ok (Located.located region (Canonical.Var moduleName name))
 
         Nothing ->
             Err (ErrorNotFoundVar region name)

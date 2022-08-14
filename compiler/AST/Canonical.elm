@@ -19,7 +19,7 @@ type alias LocatedExpr =
 type Expr
     = Int Int
     | Call LocatedExpr LocatedExpr
-    | Var Name
+    | Var ModuleName Name
     | VarLocal Name
     | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr

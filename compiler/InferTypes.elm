@@ -64,8 +64,24 @@ runHarder canModules =
                 canModules
                 |> (\( a, b, c ) -> ( CAnd a, b, c ))
 
+        modulesEnv =
+            modulesWithFreshTypes
+                |> Dict.foldl
+                    (\k v acc ->
+                        v.values
+                            |> List.map
+                                (\(Value name expr) ->
+                                    ( Located.toValue name, typeFromExpr expr )
+                                )
+                            |> Dict.fromList
+                            |> Dict.union acc
+                    )
+                    Dict.empty
+
         { env, errors, subst } =
-            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } constraint
+            solve (Dict.union modulesEnv primitives)
+                { env = Dict.empty, subst = nullSubst, errors = [] }
+                constraint
 
         typedModules : Dict ModuleName Module
         typedModules =
@@ -359,10 +375,10 @@ constrain id rtv expr expected =
             Located.getRegion expr
     in
     case Located.toValue expr of
-        AST.Var var ->
+        AST.Var moduleName var ->
             ( CLocal region var expected
             , id
-            , Located.located region ( Var var, expected )
+            , Located.located region ( Var moduleName var, expected )
             )
 
         AST.VarLocal var ->
@@ -921,7 +937,7 @@ type alias Expr =
 type Expr_
     = Int Int
     | Call LocatedExpr LocatedExpr
-    | Var Name
+    | Var ModuleName Name
     | VarLocal Name
     | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr
@@ -939,7 +955,7 @@ recurse fn locatedExpr =
                 Call func arg ->
                     ( Call (recurse fn func) (recurse fn arg), type_ )
 
-                Var _ ->
+                Var _ _ ->
                     ( expr, type_ )
 
                 VarLocal _ ->
@@ -961,6 +977,11 @@ recurse fn locatedExpr =
                     )
         )
         (fn locatedExpr)
+
+
+typeFromExpr : LocatedExpr -> Type
+typeFromExpr expr =
+    Tuple.second (Located.toValue expr)
 
 
 

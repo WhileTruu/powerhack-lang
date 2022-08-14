@@ -52,7 +52,8 @@ generateJsExpr lvl expr =
         ( InferTypes.Call fn argument, _ ) ->
             generateJsExpr lvl fn ++ "(" ++ generateJsExpr lvl argument ++ ")"
 
-        ( InferTypes.Var name, _ ) ->
+        ( InferTypes.Var _ name, _ ) ->
+            -- FIXME no modulename
             Name.toString name
 
         ( InferTypes.VarLocal name, _ ) ->

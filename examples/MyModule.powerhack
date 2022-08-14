@@ -1,2 +1,4 @@
-func =
-  1
+imports [ MyModule2 ]
+
+myModuleVal =
+  myModule2Val
