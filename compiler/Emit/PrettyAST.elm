@@ -2,15 +2,18 @@ module Emit.PrettyAST exposing (run)
 
 -- PRETTY AST
 
+import AssocList as Dict exposing (Dict)
 import Console
 import Data.Located as Located
+import Data.ModuleName exposing (ModuleName)
 import Data.Name as Name
 import InferTypes
 
 
-run : InferTypes.Module -> String
-run module_ =
-    List.map generatePrettyAstValue module_.values
+run : Dict ModuleName InferTypes.Module -> String
+run modules =
+    Dict.values modules
+        |> List.concatMap (List.map generatePrettyAstValue << .values)
         |> String.join "\n\n"
 
 
@@ -45,6 +48,12 @@ generatePrettyAstExpr lvl expr =
 
         ( InferTypes.Var name, type_ ) ->
             [ indent lvl (Console.cyan "var: ") ++ Console.green (InferTypes.prettyType type_)
+            , indent (lvl + 1) ("name: " ++ Console.red (Name.toString name))
+            ]
+                |> String.join "\n"
+
+        ( InferTypes.VarLocal name, type_ ) ->
+            [ indent lvl (Console.cyan "var_local: ") ++ Console.green (InferTypes.prettyType type_)
             , indent (lvl + 1) ("name: " ++ Console.red (Name.toString name))
             ]
                 |> String.join "\n"

@@ -6,19 +6,24 @@ module InferTypes exposing
     , Expr_(..)
     , LocatedExpr
     , Module
+    , SuperError
     , Type
     , TypeEnv(..)
     , Value(..)
     , errorToString
     , prettyScheme
+    , prettySubst
     , prettyType
     , run
     , runForExpr
+    , runHarder
     )
 
 import AST.Canonical as AST
 import AssocList as Dict exposing (Dict)
+import Console
 import Data.Located as Located exposing (Located)
+import Data.ModuleName exposing (ModuleName)
 import Data.Name as Name exposing (Name)
 
 
@@ -34,6 +39,67 @@ primitives =
         , ( Name.fromString "sub", TypeLambda typeInt (TypeLambda typeInt typeInt) )
         , ( Name.fromString "eq", TypeLambda typeInt (TypeLambda typeInt typeBool) )
         ]
+
+
+type alias SuperError =
+    { errors : List Error
+    , subst : Subst
+    , modules : Dict ModuleName Module
+    }
+
+
+runHarder : Dict ModuleName AST.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
+runHarder canModules =
+    let
+        ( constraint, _, modulesWithFreshTypes ) =
+            Dict.foldl
+                (\k v ( cons, id, modulesWithFreshTypes1 ) ->
+                    let
+                        ( con, id1, moduleWithFreshTypes ) =
+                            constrainModule id v
+                    in
+                    ( con :: cons, id1, Dict.insert k moduleWithFreshTypes modulesWithFreshTypes1 )
+                )
+                ( [], Id 0, Dict.empty )
+                canModules
+                |> (\( a, b, c ) -> ( CAnd a, b, c ))
+
+        { env, errors, subst } =
+            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } constraint
+
+        typedModules : Dict ModuleName Module
+        typedModules =
+            modulesWithFreshTypes
+                |> Dict.map
+                    (\_ { values } ->
+                        { values =
+                            List.map
+                                (\(Value name expr) ->
+                                    Value name
+                                        (recurse (Located.map (Tuple.mapSecond (applySubst subst)))
+                                            expr
+                                        )
+                                )
+                                values
+                        }
+                    )
+
+        _ =
+            Debug.log "env" env
+    in
+    case errors of
+        [] ->
+            Ok
+                ( typedModules
+                , Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env
+                )
+
+        e :: es ->
+            Err
+                { errors = List.map (applySubstInError subst) (e :: es)
+                , subst = subst
+                , modules = modulesWithFreshTypes
+                }
 
 
 run : AST.Module -> Result (List Error) ( Module, Dict Name Annotation )
@@ -299,6 +365,12 @@ constrain id rtv expr expected =
             , Located.located region ( Var var, expected )
             )
 
+        AST.VarLocal var ->
+            ( CLocal region var expected
+            , id
+            , Located.located region ( VarLocal var, expected )
+            )
+
         AST.Lambda arg body ->
             constrainLambda id rtv region arg body expected
 
@@ -496,6 +568,25 @@ applySubst subst type_ =
             TypeApplied name (List.map (applySubst subst) applied)
 
 
+prettySubst : Subst -> String
+prettySubst subst =
+    Dict.foldl
+        (\name type_ acc ->
+            (Name.toString name ++ " = " ++ Console.green (prettyType type_)) :: acc
+        )
+        []
+        subst
+        |> List.sortBy
+            (\a ->
+                String.dropLeft 1 a
+                    |> String.split " "
+                    |> List.head
+                    |> Maybe.andThen String.toInt
+                    |> Maybe.withDefault -1
+            )
+        |> String.join "\n"
+
+
 
 -- SOLVE
 
@@ -509,6 +600,13 @@ type alias State =
 
 solve : RTV -> State -> Constraint -> State
 solve rtv state constraint =
+    let
+        _ =
+            Debug.log "rtv" rtv
+
+        _ =
+            Debug.log "constraint" constraint
+    in
     case constraint of
         CEqual region t1 t2 ->
             let
@@ -824,6 +922,7 @@ type Expr_
     = Int Int
     | Call LocatedExpr LocatedExpr
     | Var Name
+    | VarLocal Name
     | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr
     | If LocatedExpr LocatedExpr LocatedExpr
@@ -841,6 +940,9 @@ recurse fn locatedExpr =
                     ( Call (recurse fn func) (recurse fn arg), type_ )
 
                 Var _ ->
+                    ( expr, type_ )
+
+                VarLocal _ ->
                     ( expr, type_ )
 
                 Lambda name body ->

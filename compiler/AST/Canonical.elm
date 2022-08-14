@@ -6,7 +6,9 @@ module AST.Canonical exposing
     , Value(..)
     )
 
+import AssocList exposing (Dict)
 import Data.Located exposing (Located)
+import Data.ModuleName exposing (ModuleName)
 import Data.Name exposing (Name)
 
 
@@ -18,6 +20,7 @@ type Expr
     = Int Int
     | Call LocatedExpr LocatedExpr
     | Var Name
+    | VarLocal Name
     | Lambda Name LocatedExpr
     | Defs (List Def) LocatedExpr
     | If LocatedExpr LocatedExpr LocatedExpr
@@ -36,7 +39,8 @@ type Def
 
 
 type alias Module =
-    { values : List Value
+    { imports : Dict ModuleName ()
+    , values : List Value
     }
 
 

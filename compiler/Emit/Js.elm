@@ -1,15 +1,22 @@
 module Emit.Js exposing (run)
 
+import AssocList as Dict exposing (Dict)
 import Data.Located as Located
+import Data.ModuleName exposing (ModuleName)
 import Data.Name as Name
 import InferTypes
 
 
-run : InferTypes.Module -> String
-run module_ =
+run : Dict ModuleName InferTypes.Module -> String
+run modules =
+    let
+        _ =
+            Debug.log "" (Dict.keys modules)
+    in
     [ "#!/usr/bin/env node"
     , builtIns
-    , List.map generateJsValue module_.values
+    , Dict.values modules
+        |> List.concatMap (List.map generateJsValue << .values)
         |> String.join "\n\n"
     , "console.log((function () { return main() })())"
     ]
@@ -46,6 +53,9 @@ generateJsExpr lvl expr =
             generateJsExpr lvl fn ++ "(" ++ generateJsExpr lvl argument ++ ")"
 
         ( InferTypes.Var name, _ ) ->
+            Name.toString name
+
+        ( InferTypes.VarLocal name, _ ) ->
             Name.toString name
 
         ( InferTypes.Lambda argument body, _ ) ->

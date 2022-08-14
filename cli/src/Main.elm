@@ -1,11 +1,18 @@
 module Main exposing (program)
 
-import Compiler
+import AST.Canonical as Can
+import AST.Source as Source
+import AssocList as Dict exposing (Dict)
+import Canonicalize
 import Data.FileContents as FileContents
 import Data.FilePath as FilePath
+import Data.ModuleName as ModuleName exposing (ModuleName)
 import Emit
+import Emit.PrettyAST
 import Error
+import InferTypes
 import List.Extra as List
+import Parse
 import Posix.IO as IO exposing (IO, Process)
 import Posix.IO.File as IOFile
 import Posix.IO.File.Permission as IOFilePermission
@@ -21,18 +28,138 @@ program process =
     Maybe.map2 (\file output -> readCompileAndWrite { file = file, output = output })
         processArgs.file
         processArgs.output
-        |> Maybe.withDefault (IO.printLn "Error: invalid args")
-        |> IO.andThen (\_ -> IO.exit 1)
+        |> Maybe.withDefault (IO.fail InvalidArgsError)
+        |> IO.and (IO.exit 0)
+        |> IO.recover (IO.print << prettyError)
+        |> IO.and (IO.exit 1)
 
 
-readCompileAndWrite : { a | file : IOFile.Filename, output : String } -> IO x ()
-readCompileAndWrite { file, output } =
-    IOFile.read file
+type Error
+    = FileReadError String
+    | FileWriteError String
+    | ParseError Parse.Error
+    | CanonicalizationError Canonicalize.Error
+    | TypeError InferTypes.SuperError
+    | InvalidArgsError
+
+
+prettyError : Error -> String
+prettyError err =
+    case err of
+        FileReadError fileReadError ->
+            Debug.toString fileReadError
+
+        FileWriteError fileWriteError ->
+            Debug.toString fileWriteError
+
+        ParseError parseError ->
+            Debug.toString parseError
+
+        CanonicalizationError canError ->
+            Debug.toString canError
+
+        TypeError { errors, subst, modules } ->
+            [ "Type errors: " ++ Debug.toString errors
+            , Emit.PrettyAST.run modules
+            , InferTypes.prettySubst subst
+            ]
+                |> String.join "\n\n\n"
+
+        InvalidArgsError ->
+            Debug.toString InvalidArgsError
+
+
+mainModuleNameFromFileName : IOFile.Filename -> ModuleName
+mainModuleNameFromFileName fileName =
+    -- FIXME unsafe
+    String.split "/" fileName
+        |> List.last
+        |> Maybe.map (String.split ".")
+        |> Maybe.andThen List.head
+        |> Maybe.withDefault "Main"
+        |> ModuleName.fromString
+
+
+sourcePathFromMainFileName : IOFile.Filename -> String
+sourcePathFromMainFileName fileName =
+    String.split "/" fileName
+        |> List.reverse
+        |> List.drop 1
+        |> List.reverse
+        |> String.join "/"
+
+
+readAndParseModules : IOFile.Filename -> IO Error (Dict ModuleName Source.Module)
+readAndParseModules fileName =
+    let
+        mainModuleName : ModuleName
+        mainModuleName =
+            mainModuleNameFromFileName fileName
+
+        sourcePath : String
+        sourcePath =
+            sourcePathFromMainFileName fileName
+    in
+    IOFile.read fileName
+        |> IO.mapError FileReadError
         |> IO.andThen
-            (\s ->
-                case Compiler.compile (FilePath.init file) (FileContents.init s) Emit.FormatJs of
+            (\contents ->
+                Parse.run (FilePath.init fileName) (FileContents.init contents)
+                    |> Result.mapError ParseError
+                    |> IO.fromResult
+            )
+        |> IO.andThen
+            (\mainModule ->
+                let
+                    imports : List ModuleName
+                    imports =
+                        Dict.keys mainModule.imports
+                in
+                imports
+                    |> List.map (\import_ -> sourcePath ++ "/" ++ ModuleName.toString import_ ++ ".powerhack")
+                    |> List.map readAndParseModules
+                    |> IO.combine
+                    |> IO.map (List.foldl Dict.union (Dict.singleton mainModuleName mainModule))
+            )
+
+
+compile : Dict ModuleName Source.Module -> Result Error String
+compile sourceModules =
+    Canonicalize.run sourceModules
+        |> Result.mapError CanonicalizationError
+        |> Result.andThen
+            (InferTypes.runHarder
+                >> Result.mapError TypeError
+            )
+        |> Result.map (Emit.run Emit.FormatJs << Tuple.first)
+
+
+readCompileAndWrite : { a | file : IOFile.Filename, output : String } -> IO Error String
+readCompileAndWrite { file, output } =
+    readAndParseModules file
+        |> IO.andThen
+            (\sourceModules ->
+                let
+                    result : Result Error String
+                    result =
+                        Canonicalize.run sourceModules
+                            |> Result.mapError CanonicalizationError
+                            |> Result.andThen
+                                (InferTypes.runHarder
+                                    >> Result.mapError TypeError
+                                )
+                            |> Result.map (Emit.run Emit.FormatJs << Tuple.first)
+                in
+                case result of
                     Ok outputS ->
-                        [ "Success! Compiled 1 module."
+                        [ "Success! Compiled "
+                            ++ String.fromInt (Dict.size sourceModules)
+                            ++ (if Dict.size sourceModules > 1 then
+                                    " modules."
+
+                                else
+                                    "module."
+                               )
                         , ""
                         , "    " ++ file ++ " ───> " ++ output
                         , ""
@@ -40,21 +167,18 @@ readCompileAndWrite { file, output } =
                         ]
                             |> String.join "\n"
                             |> IO.print
-                            |> IO.map (\_ -> outputS)
-                            |> IO.andThen
+                            |> IO.and
                                 (IOFile.write
                                     (IOFile.CreateIfNotExists IOFile.Truncate IOFilePermission.default)
                                     output
+                                    outputS
                                 )
-                            |> IO.andThen (\_ -> IO.exit 0)
+                            |> IO.mapError FileWriteError
+                            |> IO.and (IO.return output)
 
                     Err error ->
-                        Error.format error
-                            |> IO.print
-                            |> IO.andThen (\_ -> IO.exit 1)
+                        IO.fail error
             )
-        |> IO.recover IO.print
-        |> IO.andThen (\_ -> IO.exit 1)
 
 
 

@@ -1,11 +1,4 @@
 imports [ MyModule ]
 
-main = \a ->
-    fib 10 0 1
-
-fib = \n a b ->
-    if eq 0 n then
-        a
-
-    else
-        fib (sub 1 n) b (add b a)
+main =
+    func
