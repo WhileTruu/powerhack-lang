@@ -99,9 +99,6 @@ runHarder canModules =
                                 values
                         }
                     )
-
-        _ =
-            Debug.log "env" env
     in
     case errors of
         [] ->
@@ -616,13 +613,6 @@ type alias State =
 
 solve : RTV -> State -> Constraint -> State
 solve rtv state constraint =
-    let
-        _ =
-            Debug.log "rtv" rtv
-
-        _ =
-            Debug.log "constraint" constraint
-    in
     case constraint of
         CEqual region t1 t2 ->
             let

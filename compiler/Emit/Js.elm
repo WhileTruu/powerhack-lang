@@ -9,10 +9,6 @@ import InferTypes
 
 run : Dict ModuleName InferTypes.Module -> String
 run modules =
-    let
-        _ =
-            Debug.log "" (Dict.keys modules)
-    in
     [ "#!/usr/bin/env node"
     , builtIns
     , Dict.values modules
