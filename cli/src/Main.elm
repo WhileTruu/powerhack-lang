@@ -128,7 +128,7 @@ compile sourceModules =
     Canonicalize.run sourceModules
         |> Result.mapError CanonicalizationError
         |> Result.andThen
-            (InferTypes.runHarder
+            (InferTypes.run
                 >> Result.mapError TypeError
             )
         |> Result.map (Emit.run Emit.FormatJs << Tuple.first)
@@ -145,7 +145,7 @@ readCompileAndWrite { file, output } =
                         Canonicalize.run sourceModules
                             |> Result.mapError CanonicalizationError
                             |> Result.andThen
-                                (InferTypes.runHarder
+                                (InferTypes.run
                                     >> Result.mapError TypeError
                                 )
                             |> Result.map (Emit.run Emit.FormatJs << Tuple.first)

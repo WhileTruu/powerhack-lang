@@ -15,8 +15,6 @@ module InferTypes exposing
     , prettySubst
     , prettyType
     , run
-    , runForExpr
-    , runHarder
     )
 
 import AST.Canonical as AST
@@ -48,8 +46,8 @@ type alias SuperError =
     }
 
 
-runHarder : Dict ModuleName AST.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
-runHarder canModules =
+run : Dict ModuleName AST.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
+run canModules =
     let
         ( constraint, _, modulesWithFreshTypes ) =
             Dict.foldl
@@ -64,6 +62,7 @@ runHarder canModules =
                 canModules
                 |> (\( a, b, c ) -> ( CAnd a, b, c ))
 
+        modulesEnv : Dict Name Type
         modulesEnv =
             modulesWithFreshTypes
                 |> Dict.foldl
@@ -115,41 +114,6 @@ runHarder canModules =
                 }
 
 
-run : AST.Module -> Result (List Error) ( Module, Dict Name Annotation )
-run module_ =
-    let
-        ( con, _, moduleWithFreshTypes ) =
-            constrainModule (Id 0) module_
-
-        { env, errors, subst } =
-            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
-    in
-    case errors of
-        [] ->
-            let
-                typedValues : List Value
-                typedValues =
-                    (\{ values } ->
-                        List.map
-                            (\(Value name expr) ->
-                                Value name
-                                    (recurse (Located.map (Tuple.mapSecond (applySubst subst)))
-                                        expr
-                                    )
-                            )
-                            values
-                    )
-                        moduleWithFreshTypes
-            in
-            Ok
-                ( { values = typedValues }
-                , Dict.map (\_ -> generalize (TypeEnv Dict.empty) << applySubst subst) env
-                )
-
-        e :: es ->
-            Err (List.map (applySubstInError subst) (e :: es))
-
-
 applySubstInError : Subst -> Error -> Error
 applySubstInError subst e =
     case e of
@@ -164,40 +128,6 @@ applySubstInError subst e =
 
         UnboundVariable name ->
             UnboundVariable name
-
-
-runForExpr : AST.LocatedExpr -> Result (List Error) ( Annotation, LocatedExpr )
-runForExpr expr =
-    let
-        ( expectedType, id ) =
-            fresh (Id 0)
-
-        ( con, _, typedExpr ) =
-            constrain id primitives expr expectedType
-
-        { errors, subst } =
-            solve primitives { env = Dict.empty, subst = nullSubst, errors = [] } con
-    in
-    case errors of
-        [] ->
-            let
-                properlyTypedExpr : LocatedExpr
-                properlyTypedExpr =
-                    recurse
-                        (Located.map
-                            (\( expr_, type_ ) ->
-                                ( expr_, applySubst subst type_ )
-                            )
-                        )
-                        typedExpr
-            in
-            Ok
-                ( generalize (TypeEnv Dict.empty) (applySubst subst expectedType)
-                , properlyTypedExpr
-                )
-
-        es ->
-            Err es
 
 
 
