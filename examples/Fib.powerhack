@@ -1,5 +1,0 @@
-imports [ MyModule ]
-
-main =
-    x = myModuleVal
-    myModule2Val
