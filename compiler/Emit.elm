@@ -19,5 +19,4 @@ run format module_ =
             Emit.Js.run module_
 
         FormatPrettyAst ->
-            -- Emit.PrettyAST.run module_
-            Debug.todo " "
+            Emit.PrettyAST.run module_

@@ -1,11 +1,35 @@
-module Canonicalize exposing (Error, canonicalizeExpr, run)
+module Canonicalize exposing
+    ( Error
+    , canonicalizeExpr
+    , run
+    , toReport
+    )
 
 import AST.Canonical as Canonical
 import AST.Source as Source
 import AssocList as Dict exposing (Dict)
+import Data.FilePath as FilePath
 import Data.Located as Located
-import Data.ModuleName exposing (ModuleName)
-import Data.Name exposing (Name)
+import Data.ModuleName as ModuleName exposing (ModuleName)
+import Data.Name as Name exposing (Name)
+import Report exposing (Report)
+
+
+primitives : Dict Name Var
+primitives =
+    let
+        dummyRegion : Located.Region
+        dummyRegion =
+            { start = Located.Position 0 0
+            , end = Located.Position 0 0
+            }
+    in
+    -- FIXME These need to match the builtins in Emit modules
+    Dict.fromList
+        [ ( Name.fromString "add", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        , ( Name.fromString "sub", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        , ( Name.fromString "eq", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        ]
 
 
 run : Dict ModuleName Source.Module -> Result Error (Dict ModuleName Canonical.Module)
@@ -42,6 +66,7 @@ canonicalizeModule modules name module_ =
                             |> Dict.union acc
                     )
                     Dict.empty
+                |> Dict.union primitives
 
         values : Result Error (List Canonical.Value)
         values =
@@ -82,21 +107,17 @@ canonicalizeExpr env sourceExpr =
 
         Source.Call fn arguments ->
             let
-                fnResult : Result Error Canonical.LocatedExpr
-                fnResult =
-                    canonicalizeExpr env fn
-
                 argsResults : List (Result Error Canonical.LocatedExpr)
                 argsResults =
                     List.map (canonicalizeExpr env) arguments
             in
             List.foldl
                 (Result.map2
-                    (\fnExpr argExpr ->
-                        Located.located region (Canonical.Call fnExpr argExpr)
+                    (\arg acc ->
+                        Located.located region (Canonical.Call acc arg)
                     )
                 )
-                fnResult
+                (canonicalizeExpr env fn)
                 argsResults
 
         Source.Var name ->
@@ -186,3 +207,19 @@ findVar region env name =
 
 type Error
     = ErrorNotFoundVar Located.Region Name
+
+
+toReport : Error -> Report
+toReport error =
+    case error of
+        ErrorNotFoundVar region name ->
+            { filePath = FilePath.init "FIXME I don't know the file path 😢"
+            , title = "NAMING ERROR"
+            , message =
+                [ "I cannot find a `" ++ Name.toString name ++ "` variable:"
+                , (String.fromInt region.start.row ++ ":" ++ String.fromInt region.start.col)
+                    ++ " - "
+                    ++ (String.fromInt region.end.row ++ ":" ++ String.fromInt region.end.col)
+                ]
+                    |> String.join "\n\n"
+            }

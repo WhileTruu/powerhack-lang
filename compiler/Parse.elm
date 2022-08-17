@@ -2,15 +2,14 @@ module Parse exposing
     ( Context(..)
     , Error(..)
     , Problem(..)
-    , contextToString
-    , expression
-    , problemToString
     , run
     , testSuite
+    , toReport
     )
 
 import AST.Source as Source
 import AssocList as Dict exposing (Dict)
+import Console
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath exposing (FilePath)
 import Data.Located as Located exposing (Located)
@@ -18,15 +17,16 @@ import Data.ModuleName as ModuleName exposing (ModuleName)
 import Data.Name as Name exposing (Name)
 import Expect
 import Parser.Advanced as P exposing ((|.), (|=))
+import Report exposing (Report)
 import Set
 import String.Extra
 import Test exposing (Test)
 
 
-run : FilePath -> FileContents -> Result Error Source.Module
+run : FilePath -> FileContents -> Result (List Error) Source.Module
 run filePath fileContents =
-    P.run (module_ filePath) (FileContents.toString fileContents)
-        |> Result.mapError (\a -> Error a fileContents filePath)
+    P.run module_ (FileContents.toString fileContents)
+        |> Result.mapError (List.map (Error filePath))
 
 
 reserved : Set.Set String
@@ -43,14 +43,13 @@ reserved =
 -- MODULE
 
 
-module_ : FilePath -> P.Parser Context Problem Source.Module
-module_ filePath =
+module_ : P.Parser Context Problem Source.Module
+module_ =
     P.succeed Source.Module
         |= imports
         |. ignoreables
         |= (oneOrMoreWith ignoreables declaration
                 |> P.map (\( decl, decls ) -> categorizeDecls (decl :: decls))
-                |> P.inContext (InFile filePath)
            )
         |. P.end ExpectingEnd
 
@@ -429,7 +428,7 @@ rememberIndentation parser =
 
 
 type Error
-    = Error (List (P.DeadEnd Context Problem)) FileContents FilePath
+    = Error FilePath (P.DeadEnd Context Problem)
 
 
 type Context
@@ -437,26 +436,6 @@ type Context
     | InDef
     | InDefs
     | InIf
-    | InFile FilePath
-
-
-contextToString : Context -> String
-contextToString context =
-    case context of
-        InLambda ->
-            "LAMBDA"
-
-        InDef ->
-            "DEFINITION"
-
-        InDefs ->
-            "DEFINITIONS"
-
-        InIf ->
-            "IF"
-
-        InFile filePath ->
-            "IN FILE: " ++ FilePath.toString filePath
 
 
 type Problem
@@ -554,6 +533,153 @@ problemToString problem =
             "Expecting module name"
 
 
+toReport : FileContents -> Error -> Report
+toReport fileContents (Error filePath deadEnd) =
+    { filePath = filePath
+    , title =
+        case deadEnd.contextStack of
+            [] ->
+                "PROBLEM WITH PARSING?"
+
+            first :: _ ->
+                "PROBLEM " ++ contextToString first.context
+    , message =
+        [ case deadEnd.contextStack of
+            [] ->
+                "I got stuck here:"
+
+            first :: _ ->
+                case first.context of
+                    InLambda ->
+                        "I got stuck parsing this lambda here:"
+
+                    InDef ->
+                        "I got stuck parsing this definition here:"
+
+                    InDefs ->
+                        "I got stuck parsing these definitions here:"
+
+                    InIf ->
+                        "I got stuck parsing this `if` expression here:"
+        , Report.renderErrorInFileContents fileContents
+            { startRow =
+                List.head deadEnd.contextStack
+                    |> Maybe.map .row
+                    |> Maybe.withDefault deadEnd.row
+            , row = deadEnd.row
+            , col = deadEnd.col
+            }
+        , case deadEnd.problem of
+            ExpectingVarName ->
+                "I was expecting to see a variable name."
+
+            ExpectingDef ->
+                "I was expecting to see a def."
+
+            InvalidTab ->
+                "FIXME: I don't like tabs."
+
+            InvalidNumber ->
+                "I was expecting to see a valid number."
+
+            ExpectingNumber ->
+                "I was expecting to see a number."
+
+            ExpectingOpenParen ->
+                "I was expecting to see an opening parenthesis next. Try putting a "
+                    ++ Console.green "("
+                    ++ " next and see if that helps?"
+
+            ExpectingCloseParen ->
+                "I was expecting to see a closing parenthesis next. Try putting a "
+                    ++ Console.green ")"
+                    ++ " next and see if that helps?"
+
+            ExpectingEquals ->
+                "I was expecting to see the equals sign (" ++ Console.green "=" ++ ") next."
+
+            ExpectingBackslash ->
+                "I was expecting to see a backslash next."
+
+            ExpectingRightArrow ->
+                "I was expecting to see the right arrow " ++ Console.green "->" ++ " next."
+
+            FuncIdentBody ->
+                "I was expecting the function body to be indented."
+
+            ExpectingIndentation ->
+                "I was expecting to see indentation next."
+
+            ExpectingNoIndentation ->
+                "I was expecting to see no indentation  next."
+
+            ExpectingIf ->
+                "I was expecting to see the " ++ Console.green "if" ++ " keyword next."
+
+            ExpectingThen ->
+                "I was expecting to see the " ++ Console.green "then" ++ " keyword next."
+
+            ExpectingElse ->
+                "I was expecting to see the " ++ Console.green "else" ++ " keyword next."
+
+            ExpectingEnd ->
+                "Whatever is here, I wasn't expecting it!"
+
+            ExpectingImports ->
+                "I was expecting to see the " ++ Console.green "imports" ++ " keyword next."
+
+            ExpectingOpenBracket ->
+                "I was expecting to see the open bracket (" ++ Console.green "[" ++ ") next."
+
+            ExpectingComma ->
+                "I was expecting to see the comma sign (" ++ Console.green "," ++ ") next."
+
+            ExpectingCloseBracket ->
+                "I was expecting to see the close bracket (" ++ Console.green "]" ++ ") next."
+
+            ExpectingModuleName ->
+                -- TODO Add better explanation
+                "I was expecting to see the module name next."
+                    ++ "Module names start with an uppercase letter and can only "
+                    ++ "contain letters, numbers, and underscores."
+        , deadEndToString deadEnd
+        ]
+            |> String.join "\n\n"
+    }
+
+
+deadEndToString : P.DeadEnd Context Problem -> String
+deadEndToString { row, col, problem, contextStack } =
+    String.fromInt row
+        ++ ":"
+        ++ String.fromInt col
+        ++ " "
+        ++ problemToString problem
+        ++ " <--\n    "
+        ++ String.join " <-- " (List.map locatedContextToString contextStack)
+
+
+locatedContextToString : { row : Int, col : Int, context : Context } -> String
+locatedContextToString { row, col, context } =
+    String.fromInt row ++ ":" ++ String.fromInt col ++ " " ++ contextToString context
+
+
+contextToString : Context -> String
+contextToString context =
+    case context of
+        InLambda ->
+            "LAMBDA"
+
+        InDef ->
+            "DEFINITION"
+
+        InDefs ->
+            "DEFINITIONS"
+
+        InIf ->
+            "IF"
+
+
 
 -- TESTS
 
@@ -561,7 +687,7 @@ problemToString problem =
 testSuite : Test
 testSuite =
     let
-        parseString : String -> Result Error (List Source.Value)
+        parseString : String -> Result (List Error) (List Source.Value)
         parseString input =
             run (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.map .values

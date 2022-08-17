@@ -29,7 +29,7 @@ import Data.Name as Name exposing (Name)
 -- RUN
 
 
-primitives : RTV
+primitives : Dict Name Type
 primitives =
     -- FIXME These need to match the builtins in Emit modules
     Dict.fromList

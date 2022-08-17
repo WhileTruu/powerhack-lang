@@ -1,21 +1,21 @@
 module Main exposing (program)
 
-import AST.Canonical as Can
 import AST.Source as Source
 import AssocList as Dict exposing (Dict)
 import Canonicalize
-import Data.FileContents as FileContents
+import Console
+import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath
 import Data.ModuleName as ModuleName exposing (ModuleName)
 import Emit
 import Emit.PrettyAST
-import Error
 import InferTypes
 import List.Extra as List
 import Parse
 import Posix.IO as IO exposing (IO, Process)
 import Posix.IO.File as IOFile
 import Posix.IO.File.Permission as IOFilePermission
+import Report
 
 
 program : Process -> IO x ()
@@ -37,7 +37,7 @@ program process =
 type Error
     = FileReadError String
     | FileWriteError String
-    | ParseError Parse.Error
+    | ParseError FileContents (List Parse.Error)
     | CanonicalizationError Canonicalize.Error
     | TypeError InferTypes.SuperError
     | InvalidArgsError
@@ -47,26 +47,28 @@ prettyError : Error -> String
 prettyError err =
     case err of
         FileReadError fileReadError ->
-            Debug.toString fileReadError
+            Console.red "File read error: " ++ fileReadError
 
         FileWriteError fileWriteError ->
-            Debug.toString fileWriteError
+            Console.red "File write error: " ++ fileWriteError
 
-        ParseError parseError ->
-            Debug.toString parseError
+        ParseError fileContents parseError ->
+            List.map (Parse.toReport fileContents >> Report.renderReport) parseError
+                |> String.join "\n"
 
         CanonicalizationError canError ->
-            Debug.toString canError
+            Canonicalize.toReport canError
+                |> Report.renderReport
 
         TypeError { errors, subst, modules } ->
-            [ "Type errors: " ++ Debug.toString errors
+            [ "Type errors: " ++ String.join "\n" (List.map InferTypes.errorToString errors)
             , Emit.PrettyAST.run modules
             , InferTypes.prettySubst subst
             ]
                 |> String.join "\n\n\n"
 
         InvalidArgsError ->
-            Debug.toString InvalidArgsError
+            "Invalid arguments"
 
 
 mainModuleNameFromFileName : IOFile.Filename -> ModuleName
@@ -105,7 +107,7 @@ readAndParseModules fileName =
         |> IO.andThen
             (\contents ->
                 Parse.run (FilePath.init fileName) (FileContents.init contents)
-                    |> Result.mapError ParseError
+                    |> Result.mapError (ParseError (FileContents.init contents))
                     |> IO.fromResult
             )
         |> IO.andThen
@@ -121,17 +123,6 @@ readAndParseModules fileName =
                     |> IO.combine
                     |> IO.map (List.foldl Dict.union (Dict.singleton mainModuleName mainModule))
             )
-
-
-compile : Dict ModuleName Source.Module -> Result Error String
-compile sourceModules =
-    Canonicalize.run sourceModules
-        |> Result.mapError CanonicalizationError
-        |> Result.andThen
-            (InferTypes.run
-                >> Result.mapError TypeError
-            )
-        |> Result.map (Emit.run Emit.FormatJs << Tuple.first)
 
 
 readCompileAndWrite : { a | file : IOFile.Filename, output : String } -> IO Error String
@@ -158,7 +149,7 @@ readCompileAndWrite { file, output } =
                                     " modules."
 
                                 else
-                                    "module."
+                                    " module."
                                )
                         , ""
                         , "    " ++ file ++ " ───> " ++ output
