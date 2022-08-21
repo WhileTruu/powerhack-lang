@@ -11,11 +11,11 @@ import Emit
 import Emit.PrettyAST
 import InferTypes
 import List.Extra as List
-import Parse
 import Posix.IO as IO exposing (IO, Process)
 import Posix.IO.File as IOFile
 import Posix.IO.File.Permission as IOFilePermission
 import Report
+import Source
 
 
 program : Process -> IO x ()
@@ -37,7 +37,7 @@ program process =
 type Error
     = FileReadError String
     | FileWriteError String
-    | ParseError FileContents (List Parse.Error)
+    | ParseError FileContents (List Source.Error)
     | CanonicalizationError Canonicalize.Error
     | TypeError InferTypes.SuperError
     | InvalidArgsError
@@ -53,7 +53,7 @@ prettyError err =
             Console.red "File write error: " ++ fileWriteError
 
         ParseError fileContents parseError ->
-            List.map (Parse.toReport fileContents >> Report.renderReport) parseError
+            List.map (Source.toReport fileContents >> Report.renderReport) parseError
                 |> String.join "\n"
 
         CanonicalizationError canError ->
@@ -106,7 +106,7 @@ readAndParseModules fileName =
         |> IO.mapError FileReadError
         |> IO.andThen
             (\contents ->
-                Parse.run (FilePath.init fileName) (FileContents.init contents)
+                Source.run (FilePath.init fileName) (FileContents.init contents)
                     |> Result.mapError (ParseError (FileContents.init contents))
                     |> IO.fromResult
             )

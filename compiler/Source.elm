@@ -1,4 +1,4 @@
-module Parse exposing
+module Source exposing
     ( Context(..)
     , Error(..)
     , Problem(..)
