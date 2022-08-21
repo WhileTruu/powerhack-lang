@@ -843,7 +843,7 @@ generateVarName i =
 
 
 
--- TYPED AST
+-- AST EXPRESSIONS
 
 
 type alias LocatedExpr =
@@ -905,7 +905,7 @@ typeFromExpr expr =
 
 
 
--- DEFINITIONS
+-- AST DEFINITIONS
 
 
 type Def
@@ -913,7 +913,7 @@ type Def
 
 
 
--- MODULE
+-- AST MODULE
 
 
 type alias Module =

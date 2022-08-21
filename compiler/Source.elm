@@ -1,13 +1,31 @@
 module Source exposing
-    ( Context(..)
-    , Error(..)
-    , Problem(..)
-    , run
+    ( parse
+    , Module, Value(..), LocatedExpr, Expr(..), Def(..)
+    , Error(..), toReport
     , testSuite
-    , toReport
     )
 
-import AST.Source as Source
+{-| Source
+
+@docs parse
+
+
+# AST
+
+@docs Module, Value, LocatedExpr, Expr, Def
+
+
+# Errors
+
+@docs Error, toReport
+
+
+# Tests
+
+@docs testSuite
+
+-}
+
 import AssocList as Dict exposing (Dict)
 import Console
 import Data.FileContents as FileContents exposing (FileContents)
@@ -23,8 +41,8 @@ import String.Extra
 import Test exposing (Test)
 
 
-run : FilePath -> FileContents -> Result (List Error) Source.Module
-run filePath fileContents =
+parse : FilePath -> FileContents -> Result (List Error) Module
+parse filePath fileContents =
     P.run module_ (FileContents.toString fileContents)
         |> Result.mapError (List.map (Error filePath))
 
@@ -43,9 +61,9 @@ reserved =
 -- MODULE
 
 
-module_ : P.Parser Context Problem Source.Module
+module_ : P.Parser Context Problem Module
 module_ =
-    P.succeed Source.Module
+    P.succeed Module
         |= imports
         |. ignoreables
         |= (oneOrMoreWith ignoreables declaration
@@ -54,12 +72,12 @@ module_ =
         |. P.end ExpectingEnd
 
 
-categorizeDecls : List Declaration -> List Source.Value
+categorizeDecls : List Declaration -> List Value
 categorizeDecls decls =
     List.foldl
         (\decl values ->
             case decl of
-                Value val ->
+                DeclarationValue val ->
                     val :: values
         )
         []
@@ -106,12 +124,12 @@ moduleName =
 
 
 type Declaration
-    = Value Source.Value
+    = DeclarationValue Value
 
 
 declaration : P.Parser Context Problem Declaration
 declaration =
-    P.succeed (\name body -> Value (Source.Value name body))
+    P.succeed (\name body -> DeclarationValue (Value name body))
         |= onlyAtBeginningOfLine
             (variable
                 |> located
@@ -133,14 +151,14 @@ declaration =
 -- EXPRESSION
 
 
-term : P.Parser Context Problem Source.LocatedExpr
+term : P.Parser Context Problem LocatedExpr
 term =
     P.oneOf
         [ variable
-            |> P.map Source.Var
+            |> P.map Var
             |> located
         , P.number
-            { int = Result.Ok Source.Int
+            { int = Result.Ok Int
             , hex = Result.Err InvalidNumber
             , octal = Result.Err InvalidNumber
             , binary = Result.Err InvalidNumber
@@ -158,7 +176,7 @@ term =
         ]
 
 
-expression : P.Parser Context Problem Source.LocatedExpr
+expression : P.Parser Context Problem LocatedExpr
 expression =
     P.oneOf
         [ if_
@@ -172,15 +190,15 @@ expression =
         ]
 
 
-chompExprEnd : Source.LocatedExpr -> P.Parser Context Problem Source.LocatedExpr
+chompExprEnd : LocatedExpr -> P.Parser Context Problem LocatedExpr
 chompExprEnd arg =
     P.loop [] (chompExprEndHelp arg)
 
 
 chompExprEndHelp :
-    Source.LocatedExpr
-    -> List Source.LocatedExpr
-    -> P.Parser Context Problem (P.Step (List Source.LocatedExpr) Source.LocatedExpr)
+    LocatedExpr
+    -> List LocatedExpr
+    -> P.Parser Context Problem (P.Step (List LocatedExpr) LocatedExpr)
 chompExprEndHelp arg vs =
     P.succeed identity
         |. ignoreables
@@ -193,20 +211,20 @@ chompExprEndHelp arg vs =
                 P.succeed (P.Done arg)
 
               else
-                P.succeed (Source.Call arg (List.reverse vs))
+                P.succeed (Call arg (List.reverse vs))
                     |> located
                     |> P.map P.Done
             ]
 
 
-defsOrVarAndChompExprEnd : P.Parser Context Problem Source.LocatedExpr
+defsOrVarAndChompExprEnd : P.Parser Context Problem LocatedExpr
 defsOrVarAndChompExprEnd =
     P.loop [] defsOrVarAndChompExprEndHelp
 
 
 defsOrVarAndChompExprEndHelp :
-    List Source.Def
-    -> P.Parser Context Problem (P.Step (List Source.Def) Source.LocatedExpr)
+    List Def
+    -> P.Parser Context Problem (P.Step (List Def) LocatedExpr)
 defsOrVarAndChompExprEndHelp args =
     P.oneOf
         [ P.succeed identity
@@ -217,7 +235,7 @@ defsOrVarAndChompExprEndHelp args =
             |> P.andThen
                 (\name ->
                     P.oneOf
-                        [ P.succeed (\body -> Source.Define name body)
+                        [ P.succeed (\body -> Define name body)
                             |. P.symbol (P.Token "=" ExpectingEquals)
                             |. ignoreablesAndCheckIndent (<) ExpectingIndentation
                             |= P.lazy (\_ -> expression)
@@ -228,7 +246,7 @@ defsOrVarAndChompExprEndHelp args =
                                 |> P.map P.Done
 
                           else
-                            P.succeed (\expr -> Source.Defs (List.reverse args) expr)
+                            P.succeed (\expr -> Defs (List.reverse args) expr)
                                 |= varAndChompExprEnd name
                                 |> P.inContext InDefs
                                 |> located
@@ -239,7 +257,7 @@ defsOrVarAndChompExprEndHelp args =
             P.problem ExpectingDef
 
           else
-            P.succeed (\expr -> Source.Defs (List.reverse args) expr)
+            P.succeed (\expr -> Defs (List.reverse args) expr)
                 |= P.lazy (\_ -> expression)
                 |> P.inContext InDefs
                 |> located
@@ -247,16 +265,16 @@ defsOrVarAndChompExprEndHelp args =
         ]
 
 
-varAndChompExprEnd : Located Name -> P.Parser Context Problem Source.LocatedExpr
+varAndChompExprEnd : Located Name -> P.Parser Context Problem LocatedExpr
 varAndChompExprEnd name =
-    P.succeed (Source.Var (Located.toValue name))
+    P.succeed (Var (Located.toValue name))
         |> located
         |> P.andThen (\expr -> chompExprEnd expr)
 
 
-lambda : P.Parser Context Problem Source.LocatedExpr
+lambda : P.Parser Context Problem LocatedExpr
 lambda =
-    P.succeed (\( arg, args ) body -> Source.Lambda (arg :: args) body)
+    P.succeed (\( arg, args ) body -> Lambda (arg :: args) body)
         |. backslash
         |= oneOrMoreWith spacesOnly variable
         |. spacesOnly
@@ -267,9 +285,9 @@ lambda =
         |> located
 
 
-if_ : P.Parser Context Problem Source.LocatedExpr
+if_ : P.Parser Context Problem LocatedExpr
 if_ =
-    P.succeed Source.If
+    P.succeed If
         |. P.keyword (P.Token "if" ExpectingIf)
         |. ignoreables
         |= P.lazy (\_ -> expression)
@@ -687,9 +705,9 @@ contextToString context =
 testSuite : Test
 testSuite =
     let
-        parseString : String -> Result (List Error) (List Source.Value)
+        parseString : String -> Result (List Error) (List Value)
         parseString input =
-            run (FilePath.init "Test.powerhack") (FileContents.init input)
+            parse (FilePath.init "Test.powerhack") (FileContents.init input)
                 |> Result.map .values
     in
     Test.describe "Suite"
@@ -709,56 +727,56 @@ testSuite =
                     |> parseString
                     |> Expect.equal
                         (Ok
-                            [ Source.Value
+                            [ Value
                                 (Located.located { end = { col = 4, row = 4 }, start = { col = 1, row = 4 } }
                                     (Name.fromString "fib")
                                 )
                                 (Located.located { end = { col = 34, row = 8 }, start = { col = 7, row = 4 } }
-                                    (Source.Lambda [ Name.fromString "n", Name.fromString "a", Name.fromString "b" ]
+                                    (Lambda [ Name.fromString "n", Name.fromString "a", Name.fromString "b" ]
                                         (Located.located { end = { col = 34, row = 8 }, start = { col = 5, row = 5 } }
-                                            (Source.If
+                                            (If
                                                 (Located.located { end = { col = 15, row = 5 }, start = { col = 15, row = 5 } }
-                                                    (Source.Call
+                                                    (Call
                                                         (Located.located { end = { col = 11, row = 5 }, start = { col = 11, row = 5 } }
-                                                            (Source.Var (Name.fromString "eq"))
+                                                            (Var (Name.fromString "eq"))
                                                         )
                                                         [ Located.located { end = { col = 12, row = 5 }, start = { col = 11, row = 5 } }
-                                                            (Source.Int 0)
+                                                            (Int 0)
                                                         , Located.located { end = { col = 14, row = 5 }, start = { col = 13, row = 5 } }
-                                                            (Source.Var (Name.fromString "n"))
+                                                            (Var (Name.fromString "n"))
                                                         ]
                                                     )
                                                 )
                                                 (Located.located { end = { col = 10, row = 6 }, start = { col = 10, row = 6 } }
-                                                    (Source.Var (Name.fromString "a"))
+                                                    (Var (Name.fromString "a"))
                                                 )
                                                 (Located.located { end = { col = 34, row = 8 }, start = { col = 34, row = 8 } }
-                                                    (Source.Call
+                                                    (Call
                                                         (Located.located { end = { col = 13, row = 8 }, start = { col = 13, row = 8 } }
-                                                            (Source.Var (Name.fromString "fib"))
+                                                            (Var (Name.fromString "fib"))
                                                         )
                                                         [ Located.located { end = { col = 21, row = 8 }, start = { col = 21, row = 8 } }
-                                                            (Source.Call
+                                                            (Call
                                                                 (Located.located { end = { col = 18, row = 8 }, start = { col = 18, row = 8 } }
-                                                                    (Source.Var (Name.fromString "sub"))
+                                                                    (Var (Name.fromString "sub"))
                                                                 )
                                                                 [ Located.located { end = { col = 19, row = 8 }, start = { col = 18, row = 8 } }
-                                                                    (Source.Int 1)
+                                                                    (Int 1)
                                                                 , Located.located { end = { col = 21, row = 8 }, start = { col = 20, row = 8 } }
-                                                                    (Source.Var (Name.fromString "n"))
+                                                                    (Var (Name.fromString "n"))
                                                                 ]
                                                             )
                                                         , Located.located { end = { col = 24, row = 8 }, start = { col = 23, row = 8 } }
-                                                            (Source.Var (Name.fromString "b"))
+                                                            (Var (Name.fromString "b"))
                                                         , Located.located { end = { col = 33, row = 8 }, start = { col = 33, row = 8 } }
-                                                            (Source.Call
+                                                            (Call
                                                                 (Located.located { end = { col = 30, row = 8 }, start = { col = 30, row = 8 } }
-                                                                    (Source.Var (Name.fromString "add"))
+                                                                    (Var (Name.fromString "add"))
                                                                 )
                                                                 [ Located.located { end = { col = 31, row = 8 }, start = { col = 30, row = 8 } }
-                                                                    (Source.Var (Name.fromString "b"))
+                                                                    (Var (Name.fromString "b"))
                                                                 , Located.located { end = { col = 33, row = 8 }, start = { col = 32, row = 8 } }
-                                                                    (Source.Var (Name.fromString "a"))
+                                                                    (Var (Name.fromString "a"))
                                                                 ]
                                                             )
                                                         ]
@@ -768,23 +786,23 @@ testSuite =
                                         )
                                     )
                                 )
-                            , Source.Value
+                            , Value
                                 (Located.located { end = { col = 5, row = 1 }, start = { col = 1, row = 1 } }
                                     (Name.fromString "main")
                                 )
                                 (Located.located { end = { col = 1, row = 4 }, start = { col = 8, row = 1 } }
-                                    (Source.Lambda [ Name.fromString "arggg" ]
+                                    (Lambda [ Name.fromString "arggg" ]
                                         (Located.located { end = { col = 1, row = 4 }, start = { col = 1, row = 4 } }
-                                            (Source.Call
+                                            (Call
                                                 (Located.located { end = { col = 9, row = 2 }, start = { col = 9, row = 2 } }
-                                                    (Source.Var (Name.fromString "fib"))
+                                                    (Var (Name.fromString "fib"))
                                                 )
                                                 [ Located.located { end = { col = 11, row = 2 }, start = { col = 9, row = 2 } }
-                                                    (Source.Int 10)
+                                                    (Int 10)
                                                 , Located.located { end = { col = 13, row = 2 }, start = { col = 12, row = 2 } }
-                                                    (Source.Int 0)
+                                                    (Int 0)
                                                 , Located.located { end = { col = 15, row = 2 }, start = { col = 14, row = 2 } }
-                                                    (Source.Int 1)
+                                                    (Int 1)
                                                 ]
                                             )
                                         )
@@ -805,3 +823,42 @@ testSuite =
                 parseString input
                     |> Expect.err
         ]
+
+
+
+-- AST EXPRESSIONS
+
+
+type alias LocatedExpr =
+    Located Expr
+
+
+type Expr
+    = Int Int
+    | Call LocatedExpr (List LocatedExpr)
+    | Var Name
+    | Lambda (List Name) LocatedExpr
+    | Defs (List Def) LocatedExpr
+    | If LocatedExpr LocatedExpr LocatedExpr
+
+
+
+-- AST DEFINITIONS
+
+
+type Def
+    = Define (Located Name) LocatedExpr
+
+
+
+-- AST MODULE
+
+
+type alias Module =
+    { imports : Dict ModuleName ()
+    , values : List Value
+    }
+
+
+type Value
+    = Value (Located Name) LocatedExpr

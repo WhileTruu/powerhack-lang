@@ -6,13 +6,13 @@ module Canonicalize exposing
     )
 
 import AST.Canonical as Canonical
-import AST.Source as Source
 import AssocList as Dict exposing (Dict)
 import Data.FilePath as FilePath
 import Data.Located as Located
 import Data.ModuleName as ModuleName exposing (ModuleName)
 import Data.Name as Name exposing (Name)
 import Report exposing (Report)
+import Source
 
 
 primitives : Dict Name Var

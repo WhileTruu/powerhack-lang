@@ -1,6 +1,5 @@
 module Main exposing (program)
 
-import AST.Source as Source
 import AssocList as Dict exposing (Dict)
 import Canonicalize
 import Console
@@ -106,7 +105,7 @@ readAndParseModules fileName =
         |> IO.mapError FileReadError
         |> IO.andThen
             (\contents ->
-                Source.run (FilePath.init fileName) (FileContents.init contents)
+                Source.parse (FilePath.init fileName) (FileContents.init contents)
                     |> Result.mapError (ParseError (FileContents.init contents))
                     |> IO.fromResult
             )
