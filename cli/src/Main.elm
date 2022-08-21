@@ -1,7 +1,7 @@
 module Main exposing (program)
 
 import AssocList as Dict exposing (Dict)
-import Canonicalize
+import Canonical
 import Console
 import Data.FileContents as FileContents exposing (FileContents)
 import Data.FilePath as FilePath
@@ -37,7 +37,7 @@ type Error
     = FileReadError String
     | FileWriteError String
     | ParseError FileContents (List Source.Error)
-    | CanonicalizationError Canonicalize.Error
+    | CanonicalizationError Canonical.Error
     | TypeError InferTypes.SuperError
     | InvalidArgsError
 
@@ -56,7 +56,7 @@ prettyError err =
                 |> String.join "\n"
 
         CanonicalizationError canError ->
-            Canonicalize.toReport canError
+            Canonical.toReport canError
                 |> Report.renderReport
 
         TypeError { errors, subst, modules } ->
@@ -132,7 +132,7 @@ readCompileAndWrite { file, output } =
                 let
                     result : Result Error String
                     result =
-                        Canonicalize.run sourceModules
+                        Canonical.canonicalize sourceModules
                             |> Result.mapError CanonicalizationError
                             |> Result.andThen
                                 (InferTypes.run

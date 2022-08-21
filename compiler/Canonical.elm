@@ -1,21 +1,35 @@
-module Canonicalize exposing
-    ( Error
-    , canonicalizeExpr
-    , run
-    , toReport
+module Canonical exposing
+    ( Module, Value(..), LocatedExpr, Expr(..), Def(..)
+    , Error, toReport
+    , canonicalize
     )
 
-import AST.Canonical as Canonical
+{-| Canonical
+
+@docs run
+
+
+# AST
+
+@docs Module, Value, LocatedExpr, Expr, Def
+
+
+# Errors
+
+@docs Error, toReport
+
+-}
+
 import AssocList as Dict exposing (Dict)
 import Data.FilePath as FilePath
-import Data.Located as Located
+import Data.Located as Located exposing (Located)
 import Data.ModuleName as ModuleName exposing (ModuleName)
 import Data.Name as Name exposing (Name)
 import Report exposing (Report)
-import Source
+import Source as Src
 
 
-primitives : Dict Name Var
+primitives : Dict Name VarKind
 primitives =
     let
         dummyRegion : Located.Region
@@ -26,28 +40,24 @@ primitives =
     in
     -- FIXME These need to match the builtins in Emit modules
     Dict.fromList
-        [ ( Name.fromString "add", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
-        , ( Name.fromString "sub", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
-        , ( Name.fromString "eq", VarTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        [ ( Name.fromString "add", VarKindTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        , ( Name.fromString "sub", VarKindTopLevel (ModuleName.fromString "Primitives") dummyRegion )
+        , ( Name.fromString "eq", VarKindTopLevel (ModuleName.fromString "Primitives") dummyRegion )
         ]
 
 
-run : Dict ModuleName Source.Module -> Result Error (Dict ModuleName Canonical.Module)
-run source =
+canonicalize : Dict ModuleName Src.Module -> Result Error (Dict ModuleName Module)
+canonicalize source =
     Dict.foldl
         (\k v -> Result.map2 (Dict.insert k) (canonicalizeModule source k v))
         (Ok Dict.empty)
         source
 
 
-canonicalizeModule :
-    Dict ModuleName Source.Module
-    -> ModuleName
-    -> Source.Module
-    -> Result Error Canonical.Module
+canonicalizeModule : Dict ModuleName Src.Module -> ModuleName -> Src.Module -> Result Error Module
 canonicalizeModule modules name module_ =
     let
-        vars : Dict Name Var
+        vars : Dict Name VarKind
         vars =
             modules
                 |> Dict.filter
@@ -59,8 +69,8 @@ canonicalizeModule modules name module_ =
                     (\k v acc ->
                         v.values
                             |> List.map
-                                (\(Source.Value varName _) ->
-                                    ( Located.toValue varName, VarTopLevel k (Located.getRegion varName) )
+                                (\(Src.Value varName _) ->
+                                    ( Located.toValue varName, VarKindTopLevel k (Located.getRegion varName) )
                                 )
                             |> Dict.fromList
                             |> Dict.union acc
@@ -68,11 +78,11 @@ canonicalizeModule modules name module_ =
                     Dict.empty
                 |> Dict.union primitives
 
-        values : Result Error (List Canonical.Value)
+        values : Result Error (List Value)
         values =
             List.foldl
-                (\(Source.Value varName expr) ->
-                    Result.map2 ((::) << Canonical.Value varName)
+                (\(Src.Value varName expr) ->
+                    Result.map2 ((::) << Value varName)
                         (canonicalizeExpr { home = name, vars = vars }
                             expr
                         )
@@ -85,16 +95,16 @@ canonicalizeModule modules name module_ =
 
 type alias Env =
     { home : ModuleName
-    , vars : Dict Name Var
+    , vars : Dict Name VarKind
     }
 
 
-type Var
-    = VarLocal
-    | VarTopLevel ModuleName Located.Region
+type VarKind
+    = VarKindLocal
+    | VarKindTopLevel ModuleName Located.Region
 
 
-canonicalizeExpr : Env -> Source.LocatedExpr -> Result Error Canonical.LocatedExpr
+canonicalizeExpr : Env -> Src.LocatedExpr -> Result Error LocatedExpr
 canonicalizeExpr env sourceExpr =
     let
         region : Located.Region
@@ -102,28 +112,28 @@ canonicalizeExpr env sourceExpr =
             Located.getRegion sourceExpr
     in
     case Located.toValue sourceExpr of
-        Source.Int int ->
-            Ok (Located.replaceWith (Canonical.Int int) sourceExpr)
+        Src.Int int ->
+            Ok (Located.replaceWith (Int int) sourceExpr)
 
-        Source.Call fn arguments ->
+        Src.Call fn arguments ->
             let
-                argsResults : List (Result Error Canonical.LocatedExpr)
+                argsResults : List (Result Error LocatedExpr)
                 argsResults =
                     List.map (canonicalizeExpr env) arguments
             in
             List.foldl
                 (Result.map2
                     (\arg acc ->
-                        Located.located region (Canonical.Call acc arg)
+                        Located.located region (Call acc arg)
                     )
                 )
                 (canonicalizeExpr env fn)
                 argsResults
 
-        Source.Var name ->
+        Src.Var name ->
             findVar region env name
 
-        Source.Lambda arguments body ->
+        Src.Lambda arguments body ->
             let
                 newEnv : Env
                 newEnv =
@@ -131,16 +141,16 @@ canonicalizeExpr env sourceExpr =
                         | vars =
                             Dict.union
                                 (Dict.fromList
-                                    (List.map (\a -> ( a, VarLocal )) arguments)
+                                    (List.map (\a -> ( a, VarKindLocal )) arguments)
                                 )
                                 env.vars
                     }
             in
-            List.foldr (Result.map << (<<) (Located.located region) << Canonical.Lambda)
+            List.foldr (Result.map << (<<) (Located.located region) << Lambda)
                 (canonicalizeExpr newEnv body)
                 arguments
 
-        Source.Defs defs body ->
+        Src.Defs defs body ->
             let
                 newEnv : Env
                 newEnv =
@@ -149,9 +159,9 @@ canonicalizeExpr env sourceExpr =
                             Dict.union
                                 (Dict.fromList
                                     (List.map
-                                        (\(Source.Define varName _) ->
+                                        (\(Src.Define varName _) ->
                                             ( Located.toValue varName
-                                            , VarLocal
+                                            , VarKindLocal
                                             )
                                         )
                                         defs
@@ -160,42 +170,42 @@ canonicalizeExpr env sourceExpr =
                                 env.vars
                     }
 
-                canDefs : Result Error (List Canonical.Def)
+                canDefs : Result Error (List Def)
                 canDefs =
                     List.foldr
-                        (\(Source.Define varName expr_) acc ->
-                            Result.map2 ((::) << Canonical.Define varName)
+                        (\(Src.Define varName expr_) acc ->
+                            Result.map2 ((::) << Define varName)
                                 (canonicalizeExpr newEnv expr_)
                                 acc
                         )
                         (Ok [])
                         defs
 
-                canBody : Result Error Canonical.LocatedExpr
+                canBody : Result Error LocatedExpr
                 canBody =
                     canonicalizeExpr newEnv body
             in
-            Result.map2 Canonical.Defs canDefs canBody
+            Result.map2 Defs canDefs canBody
                 |> Result.map (Located.located region)
 
-        Source.If test then_ else_ ->
-            Result.map3 Canonical.If
+        Src.If test then_ else_ ->
+            Result.map3 If
                 (canonicalizeExpr env test)
                 (canonicalizeExpr env then_)
                 (canonicalizeExpr env else_)
                 |> Result.map (Located.located region)
 
 
-findVar : Located.Region -> Env -> Name -> Result Error Canonical.LocatedExpr
+findVar : Located.Region -> Env -> Name -> Result Error LocatedExpr
 findVar region env name =
     case Dict.get name env.vars of
         Just var ->
             case var of
-                VarLocal ->
-                    Ok (Located.located region (Canonical.VarLocal name))
+                VarKindLocal ->
+                    Ok (Located.located region (VarLocal name))
 
-                VarTopLevel moduleName _ ->
-                    Ok (Located.located region (Canonical.Var moduleName name))
+                VarKindTopLevel moduleName _ ->
+                    Ok (Located.located region (Var moduleName name))
 
         Nothing ->
             Err (ErrorNotFoundVar region name)
@@ -223,3 +233,43 @@ toReport error =
                 ]
                     |> String.join "\n\n"
             }
+
+
+
+-- AST EXPRESSIONS
+
+
+type alias LocatedExpr =
+    Located Expr
+
+
+type Expr
+    = Int Int
+    | Call LocatedExpr LocatedExpr
+    | Var ModuleName Name
+    | VarLocal Name
+    | Lambda Name LocatedExpr
+    | Defs (List Def) LocatedExpr
+    | If LocatedExpr LocatedExpr LocatedExpr
+
+
+
+-- AST DEFINITIONS
+
+
+type Def
+    = Define (Located Name) LocatedExpr
+
+
+
+-- AST MODULE
+
+
+type alias Module =
+    { imports : Dict ModuleName ()
+    , values : List Value
+    }
+
+
+type Value
+    = Value (Located Name) LocatedExpr

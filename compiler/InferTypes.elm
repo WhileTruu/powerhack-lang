@@ -17,8 +17,8 @@ module InferTypes exposing
     , run
     )
 
-import AST.Canonical as AST
 import AssocList as Dict exposing (Dict)
+import Canonical as Can
 import Console
 import Data.Located as Located exposing (Located)
 import Data.ModuleName exposing (ModuleName)
@@ -46,7 +46,7 @@ type alias SuperError =
     }
 
 
-run : Dict ModuleName AST.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
+run : Dict ModuleName Can.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
 run canModules =
     let
         ( constraint, _, modulesWithFreshTypes ) =
@@ -244,10 +244,10 @@ ftv ty =
 -- CONSTRAIN
 
 
-constrainModule : Id -> AST.Module -> ( Constraint, Id, Module )
+constrainModule : Id -> Can.Module -> ( Constraint, Id, Module )
 constrainModule id { values } =
     constrainDecls id
-        (List.map (\(AST.Value name expr) -> AST.Define name expr) values)
+        (List.map (\(Can.Value name expr) -> Can.Define name expr) values)
         CSaveTheEnvironment
         |> (\( con, id1, defs ) ->
                 ( con
@@ -258,7 +258,7 @@ constrainModule id { values } =
            )
 
 
-constrainDecls : Id -> List AST.Def -> Constraint -> ( Constraint, Id, List Def )
+constrainDecls : Id -> List Can.Def -> Constraint -> ( Constraint, Id, List Def )
 constrainDecls id decls finalConstraint =
     case decls of
         def :: defs ->
@@ -294,7 +294,7 @@ type alias RTV =
     Dict Name Type
 
 
-constrain : Id -> RTV -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
+constrain : Id -> RTV -> Can.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrain id rtv expr expected =
     let
         region : Located.Region
@@ -302,31 +302,31 @@ constrain id rtv expr expected =
             Located.getRegion expr
     in
     case Located.toValue expr of
-        AST.Var moduleName var ->
+        Can.Var moduleName var ->
             ( CLocal region var expected
             , id
             , Located.located region ( Var moduleName var, expected )
             )
 
-        AST.VarLocal var ->
+        Can.VarLocal var ->
             ( CLocal region var expected
             , id
             , Located.located region ( VarLocal var, expected )
             )
 
-        AST.Lambda arg body ->
+        Can.Lambda arg body ->
             constrainLambda id rtv region arg body expected
 
-        AST.Call func arg ->
+        Can.Call func arg ->
             constrainCall id rtv region func arg expected
 
-        AST.Int value ->
+        Can.Int value ->
             ( CEqual region typeInt expected
             , id
             , Located.located region ( Int value, typeInt )
             )
 
-        AST.Defs defs body ->
+        Can.Defs defs body ->
             let
                 ( bodyCon, id1, bodyExpr ) =
                     constrain id rtv body expected
@@ -339,11 +339,11 @@ constrain id rtv expr expected =
             , Located.located region ( Defs typedDefs bodyExpr, expected )
             )
 
-        AST.If cond branch final ->
+        Can.If cond branch final ->
             constrainIf id rtv region cond branch final expected
 
 
-constrainLambda : Id -> RTV -> Located.Region -> Name -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
+constrainLambda : Id -> RTV -> Located.Region -> Name -> Can.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainLambda id rtv region arg body expected =
     let
         ( argType, id1 ) =
@@ -368,7 +368,7 @@ constrainLambda id rtv region arg body expected =
     )
 
 
-constrainCall : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
+constrainCall : Id -> RTV -> Located.Region -> Can.LocatedExpr -> Can.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainCall id rtv region func arg expected =
     let
         ( funcType, id1 ) =
@@ -401,7 +401,7 @@ constrainCall id rtv region func arg expected =
     )
 
 
-constrainIf : Id -> RTV -> Located.Region -> AST.LocatedExpr -> AST.LocatedExpr -> AST.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
+constrainIf : Id -> RTV -> Located.Region -> Can.LocatedExpr -> Can.LocatedExpr -> Can.LocatedExpr -> Type -> ( Constraint, Id, LocatedExpr )
 constrainIf id rtv region cond branch final expected =
     let
         ( condCon, id1, condExpr ) =
@@ -437,12 +437,12 @@ emptyInfo =
     { cons = [], headers = Dict.empty }
 
 
-constrainRecursiveDefs : Id -> RTV -> List AST.Def -> Constraint -> ( Constraint, Id, List Def )
+constrainRecursiveDefs : Id -> RTV -> List Can.Def -> Constraint -> ( Constraint, Id, List Def )
 constrainRecursiveDefs id rtv defs bodyCon =
     recDefsHelp id rtv defs bodyCon emptyInfo []
 
 
-recDefsHelp : Id -> RTV -> List AST.Def -> Constraint -> Info -> List Def -> ( Constraint, Id, List Def )
+recDefsHelp : Id -> RTV -> List Can.Def -> Constraint -> Info -> List Def -> ( Constraint, Id, List Def )
 recDefsHelp id rtv defs bodyCon flexInfo typedDefs =
     case defs of
         [] ->
@@ -462,7 +462,7 @@ recDefsHelp id rtv defs bodyCon flexInfo typedDefs =
 
         def :: otherDefs ->
             let
-                (AST.Define name expr) =
+                (Can.Define name expr) =
                     def
 
                 ( resultType, id1 ) =
