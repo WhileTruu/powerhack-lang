@@ -8,13 +8,13 @@ import Data.FilePath as FilePath
 import Data.ModuleName as ModuleName exposing (ModuleName)
 import Emit
 import Emit.PrettyAST
-import InferTypes
 import List.Extra as List
 import Posix.IO as IO exposing (IO, Process)
 import Posix.IO.File as IOFile
 import Posix.IO.File.Permission as IOFilePermission
 import Report
 import Source
+import Typed
 
 
 program : Process -> IO x ()
@@ -38,7 +38,7 @@ type Error
     | FileWriteError String
     | ParseError FileContents (List Source.Error)
     | CanonicalizationError Canonical.Error
-    | TypeError InferTypes.SuperError
+    | TypeError Typed.SuperError
     | InvalidArgsError
 
 
@@ -60,9 +60,9 @@ prettyError err =
                 |> Report.renderReport
 
         TypeError { errors, subst, modules } ->
-            [ "Type errors: " ++ String.join "\n" (List.map InferTypes.errorToString errors)
+            [ "Type errors: " ++ String.join "\n" (List.map Typed.errorToString errors)
             , Emit.PrettyAST.run modules
-            , InferTypes.prettySubst subst
+            , Typed.prettySubst subst
             ]
                 |> String.join "\n\n\n"
 
@@ -135,7 +135,7 @@ readCompileAndWrite { file, output } =
                         Canonical.canonicalize sourceModules
                             |> Result.mapError CanonicalizationError
                             |> Result.andThen
-                                (InferTypes.run
+                                (Typed.inferTypes
                                     >> Result.mapError TypeError
                                 )
                             |> Result.map (Emit.run Emit.FormatJs << Tuple.first)

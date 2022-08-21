@@ -4,7 +4,7 @@ import AssocList exposing (Dict)
 import Data.ModuleName exposing (ModuleName)
 import Emit.Js
 import Emit.PrettyAST
-import InferTypes
+import Typed
 
 
 type Format
@@ -12,7 +12,7 @@ type Format
     | FormatPrettyAst
 
 
-run : Format -> Dict ModuleName InferTypes.Module -> String
+run : Format -> Dict ModuleName Typed.Module -> String
 run format module_ =
     case format of
         FormatJs ->

@@ -1,21 +1,30 @@
-module InferTypes exposing
-    ( Annotation
-    , Def(..)
-    , Error
-    , Expr
-    , Expr_(..)
-    , LocatedExpr
-    , Module
-    , SuperError
-    , Type
-    , TypeEnv(..)
-    , Value(..)
-    , errorToString
-    , prettyScheme
-    , prettySubst
-    , prettyType
-    , run
+module Typed exposing
+    ( inferTypes
+    , Type, Annotation, TypeEnv(..)
+    , Module, Value(..), Def(..), LocatedExpr, Expr, Expr_(..)
+    , SuperError, Error, errorToString, prettyScheme, prettySubst, prettyType
     )
+
+{-| Typed
+
+@docs inferTypes
+
+
+# Types
+
+@docs Type, Annotation, TypeEnv
+
+
+# AST
+
+@docs Module, Value, Def, LocatedExpr, Expr, Expr_
+
+
+# Errors
+
+@docs SuperError, Error, toReport, errorToString, prettyScheme, prettySubst, prettyType
+
+-}
 
 import AssocList as Dict exposing (Dict)
 import Canonical as Can
@@ -46,8 +55,8 @@ type alias SuperError =
     }
 
 
-run : Dict ModuleName Can.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
-run canModules =
+inferTypes : Dict ModuleName Can.Module -> Result SuperError ( Dict ModuleName Module, Dict Name Annotation )
+inferTypes canModules =
     let
         ( constraint, _, modulesWithFreshTypes ) =
             Dict.foldl
